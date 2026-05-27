@@ -77,11 +77,11 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from "vue";
 import { useRouter } from "vue-router";
-import { invoke } from "@tauri-apps/api/core";
 import { ElMessage } from "element-plus";
 import { Plus } from "@element-plus/icons-vue";
 import type { FormInstance, FormRules } from "element-plus";
 import type { AccountBook } from "@/types";
+import { safeInvoke } from "@/utils/invoke";
 
 const router = useRouter();
 const books = ref<AccountBook[]>([]);
@@ -102,7 +102,7 @@ onMounted(() => fetchBooks());
 async function fetchBooks() {
   loading.value = true;
   try {
-    books.value = await invoke<AccountBook[]>("list_books");
+    books.value = await safeInvoke<AccountBook[]>("list_books");
   } catch (e: any) {
     ElMessage.error(e || "加载失败");
   } finally {
@@ -134,14 +134,14 @@ async function handleSave() {
   saving.value = true;
   try {
     if (isEditing.value && editingId.value) {
-      await invoke("update_book", {
+      await safeInvoke("update_book", {
         id: editingId.value,
         name: form.name,
         remark: form.remark,
       });
       ElMessage.success("账本已更新");
     } else {
-      await invoke("create_book", { name: form.name, remark: form.remark });
+      await safeInvoke("create_book", { name: form.name, remark: form.remark });
       ElMessage.success("账本已创建");
     }
     showDialog.value = false;
@@ -155,7 +155,7 @@ async function handleSave() {
 
 async function handleDelete(id: number) {
   try {
-    await invoke("delete_book", { id });
+    await safeInvoke("delete_book", { id });
     ElMessage.success("账本已删除");
     fetchBooks();
   } catch (e: any) {
@@ -164,7 +164,7 @@ async function handleDelete(id: number) {
 }
 
 function formatAmount(val: number): string {
-  return val.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (val / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 </script>
 

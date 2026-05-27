@@ -8,14 +8,6 @@ pub struct User {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Session {
-    pub id: i64,
-    pub user_id: i64,
-    pub token: String,
-    pub expires_at: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoginResult {
     pub user: User,
     pub token: String,
@@ -28,8 +20,14 @@ pub struct AccountBook {
     pub remark: String,
     pub created_at: String,
     pub updated_at: String,
-    pub total_unsettled: Option<f64>,
+    pub total_unsettled: Option<i64>,
     pub record_count: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageUpload {
+    pub file_bytes: Vec<u8>,
+    pub file_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,9 +48,9 @@ pub struct IncomeRecord {
     pub description: String,
     pub quantity: Option<i64>,
     pub unit: String,
-    pub unit_price: Option<f64>,
+    pub unit_price: Option<i64>,
     pub size_info: String,
-    pub total_amount: f64,
+    pub total_amount: i64,
     pub settlement_status: String,
     pub payment_date: Option<String>,
     pub payment_method: Option<String>,
@@ -66,20 +64,21 @@ pub struct IncomeRecord {
 pub struct BookRanking {
     pub book_id: i64,
     pub book_name: String,
-    pub unsettled_amount: f64,
+    pub unsettled_amount: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaginatedRecords {
     pub total: i64,
-    pub total_unsettled: f64,
+    pub total_unsettled: i64,
+    pub book_total_unsettled: i64,
     pub records: Vec<IncomeRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DashboardStats {
-    pub current_month_income: f64,
-    pub total_unsettled: f64,
+    pub current_month_income: i64,
+    pub total_unsettled: i64,
     pub total_records: i64,
     pub pending_settlement: i64,
     pub book_ranking: Vec<BookRanking>,

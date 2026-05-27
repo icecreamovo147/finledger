@@ -68,7 +68,7 @@ const loading = ref(false);
 const form = reactive({
   username: "",
   password: "",
-  remember: true,
+  remember: false,
 });
 
 const rules: FormRules = {

@@ -100,12 +100,12 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from "vue";
-import { invoke } from "@tauri-apps/api/core";
 import { useAuthStore } from "@/stores/auth";
 import { ElMessage } from "element-plus";
 import { Plus } from "@element-plus/icons-vue";
 import type { FormInstance, FormRules } from "element-plus";
 import type { User } from "@/types";
+import { safeInvoke } from "@/utils/invoke";
 
 const authStore = useAuthStore();
 const users = ref<User[]>([]);
@@ -148,7 +148,7 @@ onMounted(() => {
 async function fetchUsers() {
   loading.value = true;
   try {
-    users.value = await invoke<User[]>("list_users");
+    users.value = await safeInvoke<User[]>("list_users");
   } catch (e: any) {
     ElMessage.error(e || "加载失败");
   } finally {
@@ -163,7 +163,7 @@ async function handleCreate() {
 
   creating.value = true;
   try {
-    await invoke("create_user", {
+    await safeInvoke("create_user", {
       username: createForm.username,
       password: createForm.password,
     });
@@ -181,10 +181,7 @@ async function handleCreate() {
 
 async function handleDelete(userId: number) {
   try {
-    await invoke("delete_user", {
-      userId,
-      currentUserId: authStore.user!.id,
-    });
+    await safeInvoke("delete_user", { userId });
     ElMessage.success("用户已删除");
     fetchUsers();
   } catch (e: any) {
@@ -206,7 +203,7 @@ async function handleChangePwd() {
 
   changingPwd.value = true;
   try {
-    await invoke("change_password", {
+    await safeInvoke("change_password", {
       userId: targetUserId.value,
       oldPassword: pwdForm.oldPassword,
       newPassword: pwdForm.newPassword,

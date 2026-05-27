@@ -22,7 +22,15 @@ export const useAuthStore = defineStore("auth", () => {
     });
     user.value = result.user;
     token.value = result.token;
-    localStorage.setItem("auth_token", result.token);
+    // Only persist token when "remember me" is checked.
+    // When remember=false, token lives only in Pinia memory —
+    // app restart loses it, forcing re-login. This matches the spec:
+    // "未勾选记住我时，不应持久化到 localStorage；应用重启后应重新登录。"
+    if (remember) {
+      localStorage.setItem("auth_token", result.token);
+    } else {
+      localStorage.removeItem("auth_token");
+    }
   }
 
   async function tryAutoLogin(): Promise<boolean> {

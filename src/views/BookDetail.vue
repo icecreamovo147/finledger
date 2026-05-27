@@ -23,6 +23,13 @@
         >
           导出账单
         </el-button>
+        <el-button
+          type="warning"
+          plain
+          @click="exportAllUnsettled"
+        >
+          导出全部未结清
+        </el-button>
         <el-button type="primary" @click="openCreate">
           <el-icon><Plus /></el-icon>新增记录
         </el-button>
@@ -100,14 +107,14 @@
       </el-table-column>
       <el-table-column prop="unit_price" label="单价" width="90" align="right">
         <template #default="{ row }">
-          {{ row.unit_price ? '¥' + row.unit_price.toFixed(2) : '-' }}
+          {{ row.unit_price != null ? '¥' + (row.unit_price / 100).toFixed(2) : '-' }}
         </template>
       </el-table-column>
       <el-table-column prop="size_info" label="尺寸" width="100" />
       <el-table-column prop="total_amount" label="总金额" width="120" align="right" sortable>
         <template #default="{ row }">
           <span style="font-weight: 600; color: #303133">
-            ¥{{ row.total_amount.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}
+            ¥{{ (row.total_amount / 100).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}
           </span>
         </template>
       </el-table-column>
@@ -122,14 +129,16 @@
       <el-table-column label="图片" width="100" align="center">
         <template #default="{ row }">
           <div v-if="row.images?.length" class="table-images">
-            <img
-              v-for="(img, idx) in row.images"
-              :key="img.id"
-              :src="getImageUrl(img.id)"
-              style="width: 32px; height: 32px; border-radius: 3px; object-fit: cover; cursor: pointer; margin-right: 2px"
-              @mouseenter="loadImageSrc(img.id)"
-              @click="previewImages(row.images, idx)"
-            />
+            <template v-for="(img, idx) in row.images" :key="img.id">
+              <img
+                v-if="!isImageMissing(img.id)"
+                :src="getImageUrl(img.id)"
+                style="width: 32px; height: 32px; border-radius: 3px; object-fit: cover; cursor: pointer; margin-right: 2px"
+                @mouseenter="loadImageSrc(img.id)"
+                @click="previewImages(row.images, idx)"
+              />
+              <span v-else class="img-missing-tag" title="文件不存在">缺失</span>
+            </template>
           </div>
           <span v-else style="color: #c0c4cc">-</span>
         </template>
@@ -156,7 +165,10 @@
     <!-- Pagination -->
     <div class="pagination-bar">
       <span class="unsettled-total">
-        账本未结清总额：<strong>¥{{ totalUnsettled.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}</strong>
+        账本未结清总额：<strong>¥{{ (bookTotalUnsettled / 100).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}</strong>
+        <template v-if="hasActiveFilters">
+          ｜ 筛选未结清：<strong>¥{{ (totalUnsettled / 100).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}</strong>
+        </template>
       </span>
       <el-pagination
         v-model:current-page="currentPage"
@@ -264,10 +276,14 @@
               class="image-preview"
             >
               <img
+                v-if="!isImageMissing(img.id)"
                 :src="getImageUrl(img.id)"
                 style="width: 80px; height: 80px; border-radius: 4px; object-fit: cover; cursor: pointer"
                 @click="previewImages(existingImages, idx)"
               />
+              <div v-else class="img-missing-placeholder" style="width: 80px; height: 80px; margin-right: 0">
+                <span style="font-size: 11px">文件不存在</span>
+              </div>
               <el-button
                 class="image-remove"
                 circle
@@ -365,9 +381,9 @@
             {{ IncomeCategoryLabels[detailRecord.category as IncomeCategory] || detailRecord.category }}
           </el-descriptions-item>
           <el-descriptions-item label="描述">{{ detailRecord.description || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="总金额">¥{{ detailRecord.total_amount.toFixed(2) }}</el-descriptions-item>
+          <el-descriptions-item label="总金额">¥{{ (detailRecord.total_amount / 100).toFixed(2) }}</el-descriptions-item>
           <el-descriptions-item label="数量">{{ detailRecord.quantity ?? '-' }}</el-descriptions-item>
-          <el-descriptions-item label="单价">{{ detailRecord.unit_price ? '¥' + detailRecord.unit_price.toFixed(2) : '-' }}</el-descriptions-item>
+          <el-descriptions-item label="单价">{{ detailRecord.unit_price != null ? '¥' + (detailRecord.unit_price / 100).toFixed(2) : '-' }}</el-descriptions-item>
           <el-descriptions-item label="尺寸">{{ detailRecord.size_info || '-' }}</el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag :type="detailRecord.settlement_status === 'settled' ? 'success' : 'warning'" size="small">
@@ -381,13 +397,17 @@
         <div v-if="detailRecord.images?.length" class="detail-images">
           <h4>图片凭证 ({{ detailRecord.images.length }} 张)</h4>
           <div class="image-list">
-            <img
-              v-for="(img, idx) in detailRecord.images"
-              :key="img.id"
-              :src="getImageUrl(img.id)"
-              style="width: 120px; height: 120px; border-radius: 6px; object-fit: cover; cursor: pointer; margin-right: 8px"
-              @click="previewImages(detailRecord.images, idx)"
-            />
+            <template v-for="(img, idx) in detailRecord.images" :key="img.id">
+              <img
+                v-if="!isImageMissing(img.id)"
+                :src="getImageUrl(img.id)"
+                style="width: 120px; height: 120px; border-radius: 6px; object-fit: cover; cursor: pointer; margin-right: 8px"
+                @click="previewImages(detailRecord.images, idx)"
+              />
+              <div v-else class="img-missing-placeholder">
+                <span>文件不存在</span>
+              </div>
+            </template>
           </div>
         </div>
       </div>
@@ -397,17 +417,33 @@
     <el-dialog v-model="showPreview" title="图片预览" width="80vw" destroy-on-close>
       <div v-if="previewImagesList.length" class="preview-container">
         <div class="preview-main">
-          <img :src="getImageUrl(previewImagesList[previewIndex].id)" class="preview-big" />
+          <img
+            v-if="!isImageMissing(previewImagesList[previewIndex].id)"
+            :src="getImageUrl(previewImagesList[previewIndex].id)"
+            class="preview-big"
+          />
+          <div v-else class="img-missing-placeholder large">
+            <span>文件不存在</span>
+          </div>
         </div>
         <div class="preview-thumbs" v-if="previewImagesList.length > 1">
-          <img
-            v-for="(img, idx) in previewImagesList"
-            :key="img.id"
-            :src="getImageUrl(img.id)"
-            :class="{ active: idx === previewIndex }"
-            @click="previewIndex = idx"
-            @mouseenter="loadImageSrc(img.id)"
-          />
+          <template v-for="(img, idx) in previewImagesList" :key="img.id">
+            <img
+              v-if="!isImageMissing(img.id)"
+              :src="getImageUrl(img.id)"
+              :class="{ active: idx === previewIndex }"
+              @click="previewIndex = idx"
+              @mouseenter="loadImageSrc(img.id)"
+            />
+            <div
+              v-else
+              class="thumb-missing"
+              :class="{ active: idx === previewIndex }"
+              @click="previewIndex = idx"
+            >
+              缺失
+            </div>
+          </template>
         </div>
       </div>
     </el-dialog>
@@ -417,13 +453,13 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
 import type { IncomeRecord, IncomeImage, IncomeCategory, PaginatedRecords } from "@/types";
 import { Plus, Delete, ArrowLeft } from "@element-plus/icons-vue";
 import { IncomeCategoryLabels, PaymentMethods } from "@/types";
+import { safeInvoke } from "@/utils/invoke";
 
 const route = useRoute();
 const router = useRouter();
@@ -436,6 +472,7 @@ const selectedIds = ref<number[]>([]);
 const loading = ref(false);
 const total = ref(0);
 const totalUnsettled = ref(0);
+const bookTotalUnsettled = ref(0);
 const currentPage = ref(1);
 const pageSize = ref(20);
 
@@ -452,6 +489,11 @@ const selectedUnsettled = computed(() => {
   );
 });
 
+const hasActiveFilters = computed(() => {
+  return !!(filters.category || filters.settlement_status || filters.dateRange || filters.keyword);
+});
+
+const IMAGE_MISSING = "__MISSING__";
 const imageSrcMap = ref<Record<number, string>>({});
 
 onMounted(async () => {
@@ -461,7 +503,7 @@ onMounted(async () => {
 
 async function fetchBookName() {
   try {
-    const books = await invoke<any[]>("list_books");
+    const books = await safeInvoke<any[]>("list_books");
     const book = books.find((b: any) => b.id === bookId);
     if (book) bookName.value = book.name;
   } catch { /* ignore */ }
@@ -471,7 +513,7 @@ async function fetchRecords() {
   loading.value = true;
   try {
     const [date_from, date_to] = filters.dateRange || [null, null];
-    const res = await invoke<PaginatedRecords>("list_records", {
+    const res = await safeInvoke<PaginatedRecords>("list_records", {
       bookId,
       category: filters.category || null,
       settlementStatus: filters.settlement_status || null,
@@ -484,15 +526,12 @@ async function fetchRecords() {
     records.value = res.records;
     total.value = res.total;
     totalUnsettled.value = res.total_unsettled;
-    // Refresh images for each record
+    bookTotalUnsettled.value = res.book_total_unsettled;
+    // Preload images returned with records
     for (const record of records.value) {
-      try {
-        const full = await invoke<IncomeRecord>("get_record", { id: record.id });
-        record.images = full.images;
-        for (const img of full.images) {
-          loadImageSrc(img.id);
-        }
-      } catch { /* ignore */ }
+      for (const img of record.images) {
+        loadImageSrc(img.id);
+      }
     }
   } catch (e: any) {
     ElMessage.error(e || "加载失败");
@@ -522,16 +561,22 @@ function onSelectionChange(rows: IncomeRecord[]) {
 }
 
 function getImageUrl(imageId: number): string {
-  return imageSrcMap.value[imageId] || "";
+  const val = imageSrcMap.value[imageId];
+  if (val === IMAGE_MISSING) return "";
+  return val || "";
+}
+
+function isImageMissing(imageId: number): boolean {
+  return imageSrcMap.value[imageId] === IMAGE_MISSING;
 }
 
 async function loadImageSrc(imageId: number) {
   if (imageSrcMap.value[imageId]) return;
   try {
-    const dataUrl = await invoke<string>("read_image_base64", { imageId });
+    const dataUrl = await safeInvoke<string>("read_image_base64", { imageId });
     imageSrcMap.value[imageId] = dataUrl;
   } catch {
-    imageSrcMap.value[imageId] = ""; // mark as failed
+    imageSrcMap.value[imageId] = IMAGE_MISSING;
   }
 }
 
@@ -553,12 +598,12 @@ const form = reactive({
   total_amount: 0,
   remark: "",
 });
-// Auto-calculate total amount
+// Auto-calculate total amount (form fields are in yuan, backend stores cents)
 watch(
   () => [form.quantity, form.unit_price],
   ([qty, price]) => {
     if (qty != null && price != null) {
-      form.total_amount = Math.round((qty * price) * 100) / 100;
+      form.total_amount = Math.round(qty * price * 100) / 100;
     }
   }
 );
@@ -603,9 +648,9 @@ function openEdit(record: IncomeRecord) {
   form.description = record.description;
   form.quantity = record.quantity;
   form.unit = record.unit || "";
-  form.unit_price = record.unit_price;
+  form.unit_price = record.unit_price != null ? record.unit_price / 100 : undefined;
   form.size_info = record.size_info;
-  form.total_amount = record.total_amount;
+  form.total_amount = record.total_amount / 100;
   form.remark = record.remark;
   existingImages.value = [...record.images];
   removedImageIds.value = [];
@@ -647,37 +692,38 @@ async function handleSave() {
       description: form.description,
       quantity: form.quantity,
       unit: form.unit,
-      unitPrice: form.unit_price,
+      unitPrice: form.unit_price != null ? Math.round(form.unit_price * 100) : null,
       sizeInfo: form.size_info,
-      totalAmount: form.total_amount,
+      totalAmount: Math.round(form.total_amount * 100),
       remark: form.remark,
     };
 
-    let recordId: number;
+    // Prepare image data
+    const imageData = await Promise.all(
+      newImages.value.map(async (img) => {
+        const buffer = await img.file.arrayBuffer();
+        return {
+          file_bytes: Array.from(new Uint8Array(buffer)),
+          file_name: img.file.name,
+        };
+      })
+    );
 
     if (isEditing.value && editingId.value) {
-      await invoke("update_record", { id: editingId.value, ...payload });
-      recordId = editingId.value;
-      // Remove deleted images
-      for (const imgId of removedImageIds.value) {
-        await invoke("delete_image", { id: imgId }).catch(() => {});
-      }
+      const keepImageIds = existingImages.value.map(i => i.id);
+      await safeInvoke("update_record_with_images", {
+        id: editingId.value,
+        ...payload,
+        keepImageIds,
+        newImages: imageData,
+      });
       ElMessage.success("记录已更新");
     } else {
-      const created = await invoke<IncomeRecord>("create_record", payload);
-      recordId = created.id;
-      ElMessage.success("记录已创建");
-    }
-
-    // Upload new images
-    for (const img of newImages.value) {
-      const buffer = await img.file.arrayBuffer();
-      const bytes = Array.from(new Uint8Array(buffer));
-      await invoke("upload_image", {
-        recordId,
-        fileBytes: bytes,
-        fileName: img.file.name,
+      await safeInvoke("create_record_with_images", {
+        ...payload,
+        images: imageData,
       });
+      ElMessage.success("记录已创建");
     }
 
     showFormDialog.value = false;
@@ -691,7 +737,7 @@ async function handleSave() {
 
 async function handleDelete(id: number) {
   try {
-    await invoke("delete_record", { id });
+    await safeInvoke("delete_record", { id });
     ElMessage.success("已删除");
     fetchRecords();
   } catch (e: any) {
@@ -727,7 +773,7 @@ async function handleSettle() {
 
   settling.value = true;
   try {
-    await invoke("settle_record", {
+    await safeInvoke("settle_record", {
       id: settlingId.value,
       paymentDate: settleForm.payment_date,
       paymentMethod: settleForm.payment_method,
@@ -748,7 +794,7 @@ async function batchSettle() {
     if (!record || record.settlement_status === "settled") continue;
     const today = new Date().toISOString().slice(0, 10);
     try {
-      await invoke("settle_record", {
+      await safeInvoke("settle_record", {
         id,
         paymentDate: today,
         paymentMethod: "批量结清",
@@ -762,10 +808,16 @@ async function batchSettle() {
 
 async function handleUnsettle(record: IncomeRecord) {
   try {
-    await invoke("unsettle_record", { id: record.id });
+    await ElMessageBox.confirm(
+      "确定要将该记录回退为未结清状态吗？",
+      "确认回退",
+      { confirmButtonText: "确定回退", cancelButtonText: "取消", type: "warning" }
+    );
+    await safeInvoke("unsettle_record", { id: record.id });
     ElMessage.success("已回退为未结清");
     fetchRecords();
   } catch (e: any) {
+    if (e === "cancel" || e?.message === "cancel") return;
     ElMessage.error(e || "操作失败");
   }
 }
@@ -781,9 +833,28 @@ async function exportSelected() {
     });
     if (!savePath) return;
 
-    await invoke("export_excel", {
+    await safeInvoke("export_excel", {
       bookId,
       recordIds: selectedUnsettled.value.map(r => r.id),
+      savePath: savePath as string,
+    });
+    ElMessage.success("导出成功");
+  } catch (e: any) {
+    ElMessage.error(e || "导出失败");
+  }
+}
+
+async function exportAllUnsettled() {
+  try {
+    const savePath = await save({
+      title: "保存全部未结清账单",
+      defaultPath: `全部未结清_${bookName.value}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      filters: [{ name: "Excel", extensions: ["xlsx"] }],
+    });
+    if (!savePath) return;
+
+    await safeInvoke("export_all_unsettled", {
+      bookId,
       savePath: savePath as string,
     });
     ElMessage.success("导出成功");
@@ -812,7 +883,7 @@ const detailRecord = ref<IncomeRecord | null>(null);
 
 async function viewDetail(record: IncomeRecord) {
   try {
-    detailRecord.value = await invoke<IncomeRecord>("get_record", { id: record.id });
+    detailRecord.value = await safeInvoke<IncomeRecord>("get_record", { id: record.id });
     showDetailDialog.value = true;
     // Preload detail images
     for (const img of detailRecord.value.images) {
@@ -915,6 +986,64 @@ async function viewDetail(record: IncomeRecord) {
       border-color: var(--color-primary);
       color: var(--color-primary);
     }
+  }
+}
+
+.img-missing-tag {
+  display: inline-block;
+  width: 32px;
+  height: 32px;
+  line-height: 32px;
+  text-align: center;
+  font-size: 10px;
+  color: #f56c6c;
+  background: #fef0f0;
+  border-radius: 3px;
+  margin-right: 2px;
+  cursor: default;
+}
+
+.img-missing-placeholder {
+  width: 120px;
+  height: 120px;
+  border-radius: 6px;
+  background: #f5f7fa;
+  border: 1px dashed #dcdfe6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 8px;
+  span {
+    font-size: 12px;
+    color: #f56c6c;
+  }
+  &.large {
+    width: 100%;
+    max-width: 400px;
+    height: 300px;
+    margin: 0 auto;
+    span { font-size: 16px; }
+  }
+}
+
+.thumb-missing {
+  width: 56px;
+  height: 56px;
+  border-radius: 4px;
+  background: #f5f7fa;
+  border: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: #f56c6c;
+  cursor: pointer;
+  transition: border-color 160ms ease;
+  &.active {
+    border-color: var(--color-primary);
+  }
+  &:hover {
+    border-color: var(--color-primary);
   }
 }
 

@@ -50,10 +50,10 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
-import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Download, Upload } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
+import { safeInvoke } from "@/utils/invoke";
 
 const backingUp = ref(false);
 const restoring = ref(false);
@@ -67,7 +67,7 @@ async function handleBackup() {
     if (!dir) return;
 
     backingUp.value = true;
-    const path = await invoke<string>("backup_database", {
+    const path = await safeInvoke<string>("backup_database", {
       targetDir: dir as string,
     });
     ElMessage.success(`备份成功: ${path}`);
@@ -89,7 +89,7 @@ async function handleRestore() {
     if (!file) return;
 
     restoring.value = true;
-    await invoke("restore_database", {
+    await safeInvoke("restore_database", {
       backupPath: file as string,
     });
     ElMessage.success("数据恢复成功，请重启应用以生效");

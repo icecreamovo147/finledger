@@ -9,7 +9,7 @@
           <el-icon><Money /></el-icon>
         </div>
         <div class="stat-info">
-          <div class="stat-value">¥{{ stats.current_month_income.toLocaleString("zh-CN", { minimumFractionDigits: 2 }) }}</div>
+          <div class="stat-value">¥{{ (stats.current_month_income / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 }) }}</div>
           <div class="stat-label">本月收入</div>
         </div>
       </div>
@@ -19,7 +19,7 @@
           <el-icon><Warning /></el-icon>
         </div>
         <div class="stat-info">
-          <div class="stat-value">¥{{ stats.total_unsettled.toLocaleString("zh-CN", { minimumFractionDigits: 2 }) }}</div>
+          <div class="stat-value">¥{{ (stats.total_unsettled / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 }) }}</div>
           <div class="stat-label">未结清总额</div>
         </div>
       </div>
@@ -65,7 +65,6 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
-import { invoke } from "@tauri-apps/api/core";
 import VChart from "vue-echarts";
 import { Money, Warning, Document, Clock } from "@element-plus/icons-vue";
 import { use } from "echarts/core";
@@ -73,6 +72,7 @@ import { BarChart } from "echarts/charts";
 import { GridComponent, TooltipComponent, TitleComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import type { DashboardStats } from "@/types";
+import { safeInvoke } from "@/utils/invoke";
 
 use([BarChart, GridComponent, TooltipComponent, TitleComponent, CanvasRenderer]);
 
@@ -90,7 +90,7 @@ const chartOption = computed(() => ({
     axisPointer: { type: "shadow" },
     formatter: (p: any) => {
       const item = p[0];
-      return `${item.name}<br/>未结清金额: ¥${item.value.toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`;
+      return `${item.name}<br/>未结清金额: ¥${(item.value / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`;
     },
   },
   grid: {
@@ -102,7 +102,7 @@ const chartOption = computed(() => ({
   xAxis: {
     type: "value",
     axisLabel: {
-      formatter: (v: number) => `¥${(v / 10000).toFixed(1)}万`,
+      formatter: (v: number) => `¥${(v / 100 / 10000).toFixed(1)}万`,
     },
   },
   yAxis: {
@@ -134,7 +134,7 @@ const chartOption = computed(() => ({
 
 onMounted(async () => {
   try {
-    stats.value = await invoke<DashboardStats>("get_dashboard_stats");
+    stats.value = await safeInvoke<DashboardStats>("get_dashboard_stats");
   } catch {
     // Keep default zero values
   }

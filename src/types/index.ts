@@ -82,6 +82,7 @@ export interface IncomeRecord {
 export interface PaginatedRecords {
   total: number;
   total_unsettled: number;
+  book_total_unsettled: number;
   records: IncomeRecord[];
 }
 
