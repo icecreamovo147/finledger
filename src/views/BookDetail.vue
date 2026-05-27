@@ -36,7 +36,7 @@
         placeholder="收入类别"
         clearable
         style="width: 140px"
-        @change="fetchRecords"
+        @change="handleFilterChange"
       >
         <el-option
           v-for="(label, key) in IncomeCategoryLabels"
@@ -50,7 +50,7 @@
         placeholder="结算状态"
         clearable
         style="width: 120px"
-        @change="fetchRecords"
+        @change="handleFilterChange"
       >
         <el-option label="未结清" value="unsettled" />
         <el-option label="已结清" value="settled" />
@@ -63,26 +63,26 @@
         end-placeholder="结束日期"
         format="YYYY-MM-DD"
         value-format="YYYY-MM-DD"
-        @change="fetchRecords"
+        @change="handleFilterChange"
       />
       <el-input
         v-model="filters.keyword"
         placeholder="搜索描述/备注"
         clearable
         style="width: 200px"
-        @change="fetchRecords"
-        @clear="fetchRecords"
+        @change="handleFilterChange"
+        @clear="handleFilterChange"
       />
     </div>
 
     <!-- Table -->
+    <div class="table-container">
     <el-table
       ref="tableRef"
       :data="records"
       border
       stripe
       v-loading="loading"
-      height="calc(100vh - 280px)"
       @selection-change="onSelectionChange"
     >
       <el-table-column type="selection" width="50" />
@@ -153,6 +153,24 @@
       </el-table-column>
     </el-table>
 
+    <!-- Pagination -->
+    <div class="pagination-bar">
+      <span class="unsettled-total">
+        账本未结清总额：<strong>¥{{ totalUnsettled.toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}</strong>
+      </span>
+      <el-pagination
+        v-model:current-page="currentPage"
+        v-model:page-size="pageSize"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="total"
+        layout="total, sizes, prev, pager, next, jumper"
+        background
+        @current-change="handlePageChange"
+        @size-change="handleSizeChange"
+      />
+    </div>
+    </div>
+
     <!-- Record Form Dialog (T13) -->
     <el-dialog
       v-model="showFormDialog"
@@ -178,7 +196,7 @@
         </el-form-item>
 
         <el-form-item label="类别" prop="category">
-          <el-select v-model="form.category" style="width: 100%">
+          <el-select v-model="form.category" style="width: 100%" filterable allow-create>
             <el-option
               v-for="(label, key) in IncomeCategoryLabels"
               :key="key"
@@ -192,10 +210,11 @@
           <el-input v-model="form.description" placeholder="项目描述" />
         </el-form-item>
 
-        <el-form-item label="数量">
+        <el-form-item label="数量" prop="quantity">
           <el-input-number v-model="form.quantity" :min="0" style="width: 160px" />
           <el-select
             v-model="form.unit"
+            prop="unit"
             style="width: 120px; margin-left: 8px"
             allow-create
             filterable
@@ -210,7 +229,7 @@
           </el-select>
         </el-form-item>
 
-        <el-form-item label="单价">
+        <el-form-item label="单价" prop="unit_price">
           <el-input-number v-model="form.unit_price" :min="0" :precision="2" style="width: 200px">
             <template #suffix>元</template>
           </el-input-number>
@@ -402,7 +421,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { ElMessage } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
-import type { IncomeRecord, IncomeImage, IncomeCategory } from "@/types";
+import type { IncomeRecord, IncomeImage, IncomeCategory, PaginatedRecords } from "@/types";
 import { Plus, Delete, ArrowLeft } from "@element-plus/icons-vue";
 import { IncomeCategoryLabels, PaymentMethods } from "@/types";
 
@@ -415,6 +434,10 @@ const tableRef = ref();
 const records = ref<IncomeRecord[]>([]);
 const selectedIds = ref<number[]>([]);
 const loading = ref(false);
+const total = ref(0);
+const totalUnsettled = ref(0);
+const currentPage = ref(1);
+const pageSize = ref(20);
 
 const filters = reactive({
   category: undefined as string | undefined,
@@ -448,20 +471,24 @@ async function fetchRecords() {
   loading.value = true;
   try {
     const [date_from, date_to] = filters.dateRange || [null, null];
-    records.value = await invoke<IncomeRecord[]>("list_records", {
+    const res = await invoke<PaginatedRecords>("list_records", {
       bookId,
       category: filters.category || null,
       settlementStatus: filters.settlement_status || null,
       dateFrom: date_from,
       dateTo: date_to,
       keyword: filters.keyword || null,
+      page: currentPage.value,
+      pageSize: pageSize.value,
     });
+    records.value = res.records;
+    total.value = res.total;
+    totalUnsettled.value = res.total_unsettled;
     // Refresh images for each record
     for (const record of records.value) {
       try {
         const full = await invoke<IncomeRecord>("get_record", { id: record.id });
         record.images = full.images;
-        // Preload all image thumbnails
         for (const img of full.images) {
           loadImageSrc(img.id);
         }
@@ -472,6 +499,22 @@ async function fetchRecords() {
   } finally {
     loading.value = false;
   }
+}
+
+function handlePageChange(page: number) {
+  currentPage.value = page;
+  fetchRecords();
+}
+
+function handleSizeChange(size: number) {
+  pageSize.value = size;
+  currentPage.value = 1;
+  fetchRecords();
+}
+
+function handleFilterChange() {
+  currentPage.value = 1;
+  fetchRecords();
 }
 
 function onSelectionChange(rows: IncomeRecord[]) {
@@ -523,6 +566,10 @@ watch(
 const formRules: FormRules = {
   date: [{ required: true, message: "请选择日期", trigger: "blur" }],
   category: [{ required: true, message: "请选择类别", trigger: "change" }],
+  description: [{ required: true, message: "请输入描述", trigger: "blur" }],
+  quantity: [{ required: true, message: "请输入数量", trigger: "blur" }],
+  unit: [{ required: true, message: "请选择单位", trigger: "change" }],
+  unit_price: [{ required: true, message: "请输入单价", trigger: "blur" }],
   total_amount: [{ required: true, message: "请输入金额", trigger: "blur" }],
 };
 
@@ -803,6 +850,33 @@ async function viewDetail(record: IncomeRecord) {
     gap: 12px;
     margin-bottom: 16px;
     flex-wrap: wrap;
+  }
+
+  .table-container {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 150px);
+
+    .el-table {
+      flex: 1;
+    }
+  }
+
+  .pagination-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0 0;
+
+    .unsettled-total {
+      font-size: 14px;
+      color: #606266;
+
+      strong {
+        color: #f56c6c;
+        font-size: 16px;
+      }
+    }
   }
 }
 

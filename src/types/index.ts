@@ -78,6 +78,13 @@ export interface IncomeRecord {
   updated_at: string;
 }
 
+// 分页结果
+export interface PaginatedRecords {
+  total: number;
+  total_unsettled: number;
+  records: IncomeRecord[];
+}
+
 // 看板统计
 export interface DashboardStats {
   current_month_income: number;

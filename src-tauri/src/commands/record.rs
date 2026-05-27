@@ -1,5 +1,5 @@
 use crate::db::DbState;
-use crate::models::{IncomeImage, IncomeRecord};
+use crate::models::{IncomeImage, IncomeRecord, PaginatedRecords};
 use base64::Engine;
 use std::path::{Path, PathBuf};
 use tauri::State;
@@ -100,7 +100,9 @@ pub async fn list_records(
     date_from: Option<String>,
     date_to: Option<String>,
     keyword: Option<String>,
-) -> Result<Vec<IncomeRecord>, String> {
+    page: Option<i64>,
+    page_size: Option<i64>,
+) -> Result<PaginatedRecords, String> {
     let mut query_str = String::from(
         "SELECT id, book_id, date, category, description, quantity, unit, unit_price, size_info, \
          total_amount, settlement_status, payment_date, payment_method, remark, created_at, updated_at \
@@ -192,7 +194,23 @@ pub async fn list_records(
         });
     }
 
-    Ok(result)
+    let total = result.len() as i64;
+    let total_unsettled: f64 = result
+        .iter()
+        .filter(|r| r.settlement_status == "unsettled")
+        .map(|r| r.total_amount)
+        .sum();
+
+    if let (Some(p), Some(ps)) = (page, page_size) {
+        let offset = (p - 1).max(0) as usize * ps as usize;
+        result = result.into_iter().skip(offset).take(ps as usize).collect();
+    }
+
+    Ok(PaginatedRecords {
+        total,
+        total_unsettled,
+        records: result,
+    })
 }
 
 #[tauri::command]

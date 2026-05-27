@@ -103,6 +103,7 @@ import { ref, reactive, onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { useAuthStore } from "@/stores/auth";
 import { ElMessage } from "element-plus";
+import { Plus } from "@element-plus/icons-vue";
 import type { FormInstance, FormRules } from "element-plus";
 import type { User } from "@/types";
 

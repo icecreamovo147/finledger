@@ -79,6 +79,7 @@ import { ref, reactive, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { invoke } from "@tauri-apps/api/core";
 import { ElMessage } from "element-plus";
+import { Plus } from "@element-plus/icons-vue";
 import type { FormInstance, FormRules } from "element-plus";
 import type { AccountBook } from "@/types";
 
@@ -183,6 +184,11 @@ function formatAmount(val: number): string {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 20px;
+
+  .el-empty {
+    grid-column: 1 / -1;
+    justify-self: center;
+  }
 }
 
 .book-card {

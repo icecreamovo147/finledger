@@ -70,6 +70,13 @@ pub struct BookRanking {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaginatedRecords {
+    pub total: i64,
+    pub total_unsettled: f64,
+    pub records: Vec<IncomeRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DashboardStats {
     pub current_month_income: f64,
     pub total_unsettled: f64,
