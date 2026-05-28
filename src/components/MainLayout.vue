@@ -8,9 +8,9 @@
       <el-menu
         :default-active="activeMenu"
         router
-        background-color="#1a1a2e"
-        text-color="#a0a0b0"
-        active-text-color="#409eff"
+        background-color="var(--bg-sidebar)"
+        text-color="var(--text-sidebar)"
+        active-text-color="var(--color-primary)"
       >
         <el-menu-item index="/dashboard">
           <el-icon><DataAnalysis /></el-icon>
@@ -31,7 +31,18 @@
       </el-menu>
       <div class="sidebar-footer">
         <span>{{ authStore.user?.username }}</span>
-        <el-button text size="small" @click="handleLogout">退出</el-button>
+        <div class="footer-actions">
+          <el-tooltip :content="themeTooltip" placement="top">
+            <el-button text size="small" @click="themeStore.cycleMode()">
+              <el-icon :size="16">
+                <Sunny v-if="themeStore.mode === 'light'" />
+                <Moon v-else-if="themeStore.mode === 'dark'" />
+                <Monitor v-else />
+              </el-icon>
+            </el-button>
+          </el-tooltip>
+          <el-button text size="small" @click="handleLogout">退出</el-button>
+        </div>
       </div>
     </aside>
     <main class="content">
@@ -48,19 +59,33 @@
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
+import { useThemeStore } from "@/stores/theme";
 import logoUrl from "@/assets/finledger-logo.png";
 import {
   DataAnalysis,
   Notebook,
   User,
   Setting,
+  Sunny,
+  Moon,
+  Monitor,
 } from "@element-plus/icons-vue";
 
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
+const themeStore = useThemeStore();
 
 const activeMenu = computed(() => route.path);
+
+const themeTooltip = computed(() => {
+  const labels: Record<string, string> = {
+    light: "亮色模式（点击切换）",
+    dark: "暗色模式（点击切换）",
+    auto: "跟随系统（点击切换）",
+  };
+  return labels[themeStore.mode];
+});
 
 async function handleLogout() {
   await authStore.logout();
@@ -77,7 +102,7 @@ async function handleLogout() {
 
 .sidebar {
   width: var(--sidebar-width);
-  background: #1a1a2e;
+  background: var(--bg-sidebar);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -99,7 +124,7 @@ async function handleLogout() {
     }
 
     h1 {
-      color: #fff;
+      color: var(--text-sidebar-active);
       font-size: 18px;
       font-weight: 600;
     }
@@ -116,8 +141,18 @@ async function handleLogout() {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    color: #a0a0b0;
+    color: var(--text-sidebar);
     font-size: 13px;
+
+    .footer-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+
+      .el-button {
+        color: var(--text-sidebar);
+      }
+    }
   }
 }
 
@@ -125,7 +160,7 @@ async function handleLogout() {
   flex: 1;
   min-height: 0;
   height: 100%;
-  background: #f5f7fa;
+  background: var(--bg-secondary);
   padding: 24px;
   overflow-y: auto;
   overflow-x: hidden;
