@@ -37,6 +37,36 @@
 
     <el-divider />
 
+    <!-- Appearance -->
+    <div class="setting-section">
+      <div class="section-header">
+        <h3>外观设置</h3>
+        <p class="section-desc">选择应用的主题模式</p>
+      </div>
+      <el-radio-group
+        :model-value="themeStore.mode"
+        @update:model-value="themeStore.setMode($event)"
+      >
+        <el-radio-button value="light">
+          <el-icon style="margin-right: 4px; vertical-align: middle;"><Sunny /></el-icon>
+          <span style="vertical-align: middle;">亮色</span>
+        </el-radio-button>
+        <el-radio-button value="dark">
+          <el-icon style="margin-right: 4px; vertical-align: middle;"><Moon /></el-icon>
+          <span style="vertical-align: middle;">暗色</span>
+        </el-radio-button>
+        <el-radio-button value="auto">
+          <el-icon style="margin-right: 4px; vertical-align: middle;"><Monitor /></el-icon>
+          <span style="vertical-align: middle;">跟随系统</span>
+        </el-radio-button>
+      </el-radio-group>
+      <p v-if="themeStore.mode === 'auto'" class="system-hint">
+        当前系统偏好：{{ themeStore.systemDark ? '暗色' : '亮色' }}
+      </p>
+    </div>
+
+    <el-divider />
+
     <!-- About -->
     <div class="setting-section">
       <div class="section-header">
@@ -51,10 +81,12 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { Download, Upload } from "@element-plus/icons-vue";
+import { Download, Upload, Sunny, Moon, Monitor } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import { safeInvoke } from "@/utils/invoke";
+import { useThemeStore } from "@/stores/theme";
 
+const themeStore = useThemeStore();
 const backingUp = ref(false);
 const restoring = ref(false);
 
@@ -123,14 +155,20 @@ async function handleRestore() {
 
     .section-desc {
       font-size: 13px;
-      color: #909399;
+      color: var(--text-tertiary);
     }
   }
 }
 
 .about-info {
   font-size: 14px;
-  color: #606266;
+  color: var(--text-secondary);
   line-height: 1.8;
+}
+
+.system-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-tertiary);
 }
 </style>
