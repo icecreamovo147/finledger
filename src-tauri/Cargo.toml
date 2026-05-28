@@ -23,6 +23,8 @@ rust_xlsxwriter = "0.79"
 base64 = "0.22"
 mime_guess = "2"
 tokio = { version = "1", features = ["full"] }
+zip = "2"
+sha2 = "0.10"
 
 [dev-dependencies]
 tempfile = "3"

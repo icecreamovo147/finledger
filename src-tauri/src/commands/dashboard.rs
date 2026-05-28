@@ -1,5 +1,6 @@
 use crate::db::DbState;
-use crate::models::{BookRanking, DashboardStats};
+use crate::models::{BookRanking, CategoryShare, DashboardStats, MonthlyIncome, MonthlySettlement};
+use chrono::Datelike;
 use tauri::State;
 
 #[tauri::command]
@@ -49,6 +50,93 @@ pub async fn get_dashboard_stats(db: State<'_, DbState>, token: String) -> Resul
     .await
     .map_err(|e| e.to_string())?;
 
+    // Build recent 12 month keys and query trends
+    let month_keys = build_recent_month_keys(12, &now);
+    let month_start_12 = format!("{}-01", month_keys.first().unwrap());
+
+    let income_rows: Vec<(String, Option<i64>)> = sqlx::query_as(
+        r#"
+        SELECT strftime('%Y-%m', date) as month, SUM(total_amount)
+        FROM income_records
+        WHERE date >= ?1
+        GROUP BY strftime('%Y-%m', date)
+        ORDER BY month
+        "#,
+    )
+    .bind(&month_start_12)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let settlement_rows: Vec<(String, Option<i64>, Option<i64>)> = sqlx::query_as(
+        r#"
+        SELECT
+            strftime('%Y-%m', date) as month,
+            SUM(CASE WHEN settlement_status = 'settled' THEN total_amount ELSE 0 END) as settled_amount,
+            SUM(CASE WHEN settlement_status = 'unsettled' THEN total_amount ELSE 0 END) as unsettled_amount
+        FROM income_records
+        WHERE date >= ?1
+        GROUP BY strftime('%Y-%m', date)
+        ORDER BY month
+        "#,
+    )
+    .bind(&month_start_12)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let category_rows: Vec<(String, Option<i64>)> = sqlx::query_as(
+        r#"
+        SELECT category, SUM(total_amount)
+        FROM income_records
+        WHERE date >= ?1
+        GROUP BY category
+        ORDER BY SUM(total_amount) DESC
+        "#,
+    )
+    .bind(&month_start_12)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let income_map: std::collections::HashMap<String, i64> = income_rows
+        .into_iter()
+        .map(|(month, amount)| (month, amount.unwrap_or(0)))
+        .collect();
+
+    let settlement_map: std::collections::HashMap<String, (i64, i64)> = settlement_rows
+        .into_iter()
+        .map(|(month, settled, unsettled)| (month, (settled.unwrap_or(0), unsettled.unwrap_or(0))))
+        .collect();
+
+    let income_trend = month_keys
+        .iter()
+        .map(|month| MonthlyIncome {
+            month: month.clone(),
+            total_amount: income_map.get(month).copied().unwrap_or(0),
+        })
+        .collect();
+
+    let settlement_trend = month_keys
+        .iter()
+        .map(|month| {
+            let (settled, unsettled) = settlement_map.get(month).copied().unwrap_or((0, 0));
+            MonthlySettlement {
+                month: month.clone(),
+                settled_amount: settled,
+                unsettled_amount: unsettled,
+            }
+        })
+        .collect();
+
+    let category_share = category_rows
+        .into_iter()
+        .map(|(category, amount)| CategoryShare {
+            category,
+            amount: amount.unwrap_or(0),
+        })
+        .collect();
+
     Ok(DashboardStats {
         current_month_income: current_month.0.unwrap_or(0),
         total_unsettled: total_unsettled.0.unwrap_or(0),
@@ -62,5 +150,26 @@ pub async fn get_dashboard_stats(db: State<'_, DbState>, token: String) -> Resul
                 unsettled_amount: amount.unwrap_or(0),
             })
             .collect(),
+        income_trend,
+        settlement_trend,
+        category_share,
     })
+}
+
+fn build_recent_month_keys(months: i64, now: &chrono::DateTime<chrono::Local>) -> Vec<String> {
+    let mut keys = Vec::with_capacity(months as usize);
+    let mut year = now.year();
+    let mut month = now.month() as i32;
+
+    for _ in 0..months {
+        keys.push(format!("{:04}-{:02}", year, month));
+        month -= 1;
+        if month == 0 {
+            month = 12;
+            year -= 1;
+        }
+    }
+
+    keys.reverse();
+    keys
 }

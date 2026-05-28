@@ -29,13 +29,27 @@ pub fn run() {
             let pool = tauri::async_runtime::block_on(async {
                 let opts = SqliteConnectOptions::from_str(&db_url)
                     .expect("invalid database URL")
-                    .foreign_keys(true);
+                    .foreign_keys(true)
+                    .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+                    .synchronous(sqlx::sqlite::SqliteSynchronous::Full)
+                    .busy_timeout(std::time::Duration::from_secs(5));
                 SqlitePoolOptions::new()
                     .max_connections(5)
                     .connect_with(opts)
                     .await
                     .expect("failed to connect to database")
             });
+
+            // Clean up orphan temp files from previous failed uploads
+            let images_dir = app_dir.join("images");
+            if let Ok(entries) = std::fs::read_dir(&images_dir) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    if name.to_string_lossy().starts_with(".tmp-") {
+                        std::fs::remove_file(entry.path()).ok();
+                    }
+                }
+            }
 
             let db = DbState::new(pool, app_dir);
             tauri::async_runtime::block_on(async {
@@ -76,6 +90,8 @@ pub fn run() {
             commands::record::settle_record,
             commands::record::unsettle_record,
             commands::record::read_image_base64,
+            commands::record::check_attachment_consistency,
+            commands::record::cleanup_orphan_images,
             commands::export::export_excel,
             commands::export::export_all_unsettled,
             commands::dashboard::get_dashboard_stats,

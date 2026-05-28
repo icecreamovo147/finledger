@@ -68,6 +68,31 @@ pub struct BookRanking {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonthlyIncome {
+    pub month: String,
+    pub total_amount: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonthlySettlement {
+    pub month: String,
+    pub settled_amount: i64,
+    pub unsettled_amount: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CategoryShare {
+    pub category: String,
+    pub amount: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaginatedBooks {
+    pub total: i64,
+    pub books: Vec<AccountBook>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaginatedRecords {
     pub total: i64,
     pub total_unsettled: i64,
@@ -82,4 +107,17 @@ pub struct DashboardStats {
     pub total_records: i64,
     pub pending_settlement: i64,
     pub book_ranking: Vec<BookRanking>,
+    pub income_trend: Vec<MonthlyIncome>,
+    pub settlement_trend: Vec<MonthlySettlement>,
+    pub category_share: Vec<CategoryShare>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupManifest {
+    pub backup_format_version: u32,
+    pub app: String,
+    pub version: String,
+    pub created_at: String,
+    pub db_sha256: String,
+    pub images_count: u32,
 }

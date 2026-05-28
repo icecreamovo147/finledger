@@ -79,6 +79,11 @@ export interface IncomeRecord {
 }
 
 // 分页结果
+export interface PaginatedBooks {
+  total: number;
+  books: AccountBook[];
+}
+
 export interface PaginatedRecords {
   total: number;
   total_unsettled: number;
@@ -96,6 +101,19 @@ export interface DashboardStats {
     book_id: number;
     book_name: string;
     unsettled_amount: number;
+  }[];
+  income_trend: {
+    month: string;
+    total_amount: number;
+  }[];
+  settlement_trend: {
+    month: string;
+    settled_amount: number;
+    unsettled_amount: number;
+  }[];
+  category_share: {
+    category: string;
+    amount: number;
   }[];
 }
 

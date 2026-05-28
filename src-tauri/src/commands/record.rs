@@ -299,21 +299,36 @@ pub async fn do_delete_record(db: &DbState, id: i64) -> Result<(), String> {
     if current_status == "settled" {
         return Err("已结清记录不可删除".into());
     }
+
+    // Query image paths before deletion
     let images: Vec<(String,)> =
         sqlx::query_as("SELECT file_path FROM income_images WHERE record_id = ?1")
             .bind(id)
             .fetch_all(&pool)
             .await
             .map_err(|e| e.to_string())?;
-    for (path,) in &images {
-        let full_path = resolve_image_path(db, path);
-        std::fs::remove_file(full_path).ok();
-    }
-    sqlx::query("DELETE FROM income_records WHERE id = ?1")
+
+    // Delete DB rows in a transaction first
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM income_images WHERE record_id = ?1")
         .bind(id)
-        .execute(&pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
+    sqlx::query("DELETE FROM income_records WHERE id = ?1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+
+    // After commit, delete image files (best-effort, don't fail on error)
+    for (path,) in &images {
+        let full_path = resolve_image_path(db, path);
+        if let Err(e) = std::fs::remove_file(&full_path) {
+            eprintln!("警告: 无法删除图片文件 {}: {}", full_path.display(), e);
+        }
+    }
     Ok(())
 }
 
@@ -524,15 +539,19 @@ pub async fn upload_image(
         .and_then(|e| e.to_str())
         .unwrap_or("jpg");
     let new_name = format!("{}.{}", Uuid::new_v4(), ext);
+    let temp_name = format!(".tmp-{}", new_name);
 
     std::fs::create_dir_all(&db.images_dir).ok();
-    let save_path = db.images_dir.join(&new_name);
-    std::fs::write(&save_path, &file_bytes).map_err(|e| e.to_string())?;
+    let temp_path = db.images_dir.join(&temp_name);
+    let final_path = db.images_dir.join(&new_name);
+
+    // Write to temp file first
+    std::fs::write(&temp_path, &file_bytes).map_err(|e| e.to_string())?;
 
     let relative_path = format!("images/{}", new_name);
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    let id = sqlx::query(
+    let result = sqlx::query(
         "INSERT INTO income_images (record_id, file_path, original_name, created_at) VALUES (?1, ?2, ?3, ?4)",
     )
     .bind(record_id)
@@ -540,17 +559,37 @@ pub async fn upload_image(
     .bind(&file_name)
     .bind(&now)
     .execute(&pool)
-    .await
-    .map_err(|e| e.to_string())?
-    .last_insert_rowid();
+    .await;
 
-    Ok(IncomeImage {
-        id,
-        record_id,
-        file_path: relative_path,
-        original_name: file_name,
-        created_at: now,
-    })
+    match result {
+        Ok(res) => {
+            // DB insert succeeded: rename temp to final
+            if let Err(e) = std::fs::rename(&temp_path, &final_path) {
+                // Rename failed: roll back the DB insert and clean up
+                let id = res.last_insert_rowid();
+                sqlx::query("DELETE FROM income_images WHERE id = ?1")
+                    .bind(id)
+                    .execute(&pool)
+                    .await
+                    .ok();
+                std::fs::remove_file(&temp_path).ok();
+                return Err(format!("保存图片文件失败: {}", e));
+            }
+            let id = res.last_insert_rowid();
+            Ok(IncomeImage {
+                id,
+                record_id,
+                file_path: relative_path,
+                original_name: file_name,
+                created_at: now,
+            })
+        }
+        Err(e) => {
+            // DB insert failed: clean up temp file
+            std::fs::remove_file(&temp_path).ok();
+            Err(e.to_string())
+        }
+    }
 }
 
 #[tauri::command]
@@ -579,14 +618,20 @@ pub async fn delete_image(db: State<'_, DbState>, token: String, id: i64) -> Res
         return Err("已结清记录不可修改".into());
     }
 
-    let full_path = resolve_image_path(&db, &path);
-    std::fs::remove_file(full_path).ok();
-
+    // Delete DB row first in a transaction
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
     sqlx::query("DELETE FROM income_images WHERE id = ?1")
         .bind(id)
-        .execute(&pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+
+    // After commit, delete the file (best-effort)
+    let full_path = resolve_image_path(&db, &path);
+    if let Err(e) = std::fs::remove_file(&full_path) {
+        eprintln!("警告: 无法删除图片文件 {}: {}", full_path.display(), e);
+    }
 
     Ok(())
 }
@@ -959,4 +1004,70 @@ pub async fn read_image_base64(
 
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok(format!("data:{};base64,{}", mime, b64))
+}
+
+// ===== Attachment Consistency Check =====
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct OrphanImage {
+    pub id: i64,
+    pub record_id: i64,
+    pub file_path: String,
+}
+
+pub async fn do_check_image_consistency(db: &DbState) -> Result<Vec<OrphanImage>, String> {
+    let pool = db.get_pool().await?;
+    let rows: Vec<(i64, i64, String)> = sqlx::query_as(
+        "SELECT id, record_id, file_path FROM income_images",
+    )
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let mut orphans = Vec::new();
+    for (id, record_id, file_path) in rows {
+        let full_path = resolve_image_path(db, &file_path);
+        if !full_path.exists() {
+            orphans.push(OrphanImage {
+                id,
+                record_id,
+                file_path,
+            });
+        }
+    }
+    Ok(orphans)
+}
+
+#[tauri::command]
+pub async fn check_attachment_consistency(
+    db: State<'_, DbState>,
+    token: String,
+) -> Result<Vec<OrphanImage>, String> {
+    db.validate_token(&token).await?;
+    do_check_image_consistency(&db).await
+}
+
+#[tauri::command]
+pub async fn cleanup_orphan_images(
+    db: State<'_, DbState>,
+    token: String,
+) -> Result<u64, String> {
+    db.validate_token(&token).await?;
+    let orphans = do_check_image_consistency(&db).await?;
+    let count = orphans.len() as u64;
+
+    if count > 0 {
+        let pool = db.get_pool().await?;
+        let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+        for orphan in &orphans {
+            sqlx::query("DELETE FROM income_images WHERE id = ?1")
+                .bind(orphan.id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        tx.commit().await.map_err(|e| e.to_string())?;
+    }
+
+    Ok(count)
 }

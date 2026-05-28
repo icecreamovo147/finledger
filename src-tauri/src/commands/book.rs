@@ -1,6 +1,6 @@
 use crate::commands::record::resolve_image_path;
 use crate::db::DbState;
-use crate::models::AccountBook;
+use crate::models::{AccountBook, PaginatedBooks};
 use tauri::State;
 
 #[tauri::command]
@@ -43,9 +43,24 @@ pub async fn create_book(
 }
 
 #[tauri::command]
-pub async fn list_books(db: State<'_, DbState>, token: String) -> Result<Vec<AccountBook>, String> {
+pub async fn list_books(
+    db: State<'_, DbState>,
+    token: String,
+    page: Option<i64>,
+    page_size: Option<i64>,
+) -> Result<PaginatedBooks, String> {
     db.validate_token(&token).await?;
     let pool = db.get_pool().await?;
+
+    let page = page.unwrap_or(1).max(1);
+    let page_size = page_size.unwrap_or(20).clamp(1, 100);
+    let offset = (page - 1) * page_size;
+
+    let (total,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM account_books")
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
     let books: Vec<(i64, String, String, String, String, Option<i64>, Option<i64>)> = sqlx::query_as(
         r#"
         SELECT
@@ -55,27 +70,33 @@ pub async fn list_books(db: State<'_, DbState>, token: String) -> Result<Vec<Acc
         FROM account_books b
         LEFT JOIN income_records r ON r.book_id = b.id
         GROUP BY b.id
-        ORDER BY b.updated_at DESC
+        ORDER BY b.created_at ASC
+        LIMIT ?1 OFFSET ?2
         "#,
     )
+    .bind(page_size)
+    .bind(offset)
     .fetch_all(&pool)
     .await
     .map_err(|e| e.to_string())?;
 
-    Ok(books
-        .into_iter()
-        .map(|(id, name, remark, created_at, updated_at, total_unsettled, record_count)| {
-            AccountBook {
-                id,
-                name,
-                remark,
-                created_at,
-                updated_at,
-                total_unsettled,
-                record_count,
-            }
-        })
-        .collect())
+    Ok(PaginatedBooks {
+        total,
+        books: books
+            .into_iter()
+            .map(|(id, name, remark, created_at, updated_at, total_unsettled, record_count)| {
+                AccountBook {
+                    id,
+                    name,
+                    remark,
+                    created_at,
+                    updated_at,
+                    total_unsettled,
+                    record_count,
+                }
+            })
+            .collect(),
+    })
 }
 
 #[tauri::command]
@@ -117,7 +138,7 @@ pub async fn delete_book(db: State<'_, DbState>, token: String, id: i64) -> Resu
     db.validate_token(&token).await?;
     let pool = db.get_pool().await?;
 
-    // Delete all associated image files
+    // Query all associated image paths before deletion
     let images: Vec<(String,)> = sqlx::query_as(
         "SELECT file_path FROM income_images WHERE record_id IN (SELECT id FROM income_records WHERE book_id = ?1)",
     )
@@ -126,20 +147,26 @@ pub async fn delete_book(db: State<'_, DbState>, token: String, id: i64) -> Resu
     .await
     .map_err(|e| e.to_string())?;
 
-    for (path,) in &images {
-        let full_path = resolve_image_path(&db, path);
-        std::fs::remove_file(full_path).ok();
-    }
-
-    // Cascade delete: images and records are deleted via FK cascade
+    // Delete DB rows in a transaction first (FK cascade deletes records and images)
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
     let result = sqlx::query("DELETE FROM account_books WHERE id = ?1")
         .bind(id)
-        .execute(&pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
 
     if result.rows_affected() == 0 {
+        tx.rollback().await.ok();
         return Err("账本不存在".into());
+    }
+    tx.commit().await.map_err(|e| e.to_string())?;
+
+    // After commit, delete image files (best-effort)
+    for (path,) in &images {
+        let full_path = resolve_image_path(&db, path);
+        if let Err(e) = std::fs::remove_file(&full_path) {
+            eprintln!("警告: 无法删除图片文件 {}: {}", full_path.display(), e);
+        }
     }
     Ok(())
 }

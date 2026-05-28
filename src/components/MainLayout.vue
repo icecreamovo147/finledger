@@ -71,7 +71,8 @@ async function handleLogout() {
 <style scoped lang="scss">
 .main-layout {
   display: flex;
-  height: 100%;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -122,9 +123,12 @@ async function handleLogout() {
 
 .content {
   flex: 1;
+  min-height: 0;
+  height: 100%;
   background: #f5f7fa;
   padding: 24px;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .page-fade-enter-active,

@@ -6,10 +6,10 @@
     <div class="setting-section">
       <div class="section-header">
         <h3>数据备份</h3>
-        <p class="section-desc">将数据库备份到本地文件夹，建议定期备份</p>
+        <p class="section-desc">包含账本、记录、结清状态和附件图片，建议定期备份</p>
       </div>
       <el-button type="primary" :loading="backingUp" @click="handleBackup">
-        <el-icon><Download /></el-icon>备份数据库
+        <el-icon><Download /></el-icon>备份数据
       </el-button>
     </div>
 
@@ -83,16 +83,17 @@ async function handleRestore() {
     const file = await openDialog({
       title: "选择备份文件",
       filters: [
-        { name: "数据库备份", extensions: ["db"] },
+        { name: "FinLedger 备份", extensions: ["flbackup"] },
+        { name: "旧版数据库备份", extensions: ["db"] },
       ],
     });
     if (!file) return;
 
     restoring.value = true;
-    await safeInvoke("restore_database", {
+    const msg = await safeInvoke<string>("restore_database", {
       backupPath: file as string,
     });
-    ElMessage.success("数据恢复成功，请重启应用以生效");
+    ElMessage.success(msg || "数据恢复成功");
   } catch (e: any) {
     ElMessage.error(e || "恢复失败");
   } finally {

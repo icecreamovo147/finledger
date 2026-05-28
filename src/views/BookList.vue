@@ -40,6 +40,19 @@
       </div>
     </div>
 
+    <div v-if="total > 0" class="pagination-wrapper">
+      <el-pagination
+        v-model:current-page="currentPage"
+        v-model:page-size="pageSize"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="total"
+        layout="total, sizes, prev, pager, next, jumper"
+        background
+        @current-change="fetchBooks"
+        @size-change="handleSizeChange"
+      />
+    </div>
+
     <!-- 新增/编辑弹窗 -->
     <el-dialog
       v-model="showDialog"
@@ -80,12 +93,15 @@ import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { Plus } from "@element-plus/icons-vue";
 import type { FormInstance, FormRules } from "element-plus";
-import type { AccountBook } from "@/types";
+import type { AccountBook, PaginatedBooks } from "@/types";
 import { safeInvoke } from "@/utils/invoke";
 
 const router = useRouter();
 const books = ref<AccountBook[]>([]);
 const loading = ref(false);
+const total = ref(0);
+const currentPage = ref(1);
+const pageSize = ref(10);
 
 const showDialog = ref(false);
 const isEditing = ref(false);
@@ -102,12 +118,22 @@ onMounted(() => fetchBooks());
 async function fetchBooks() {
   loading.value = true;
   try {
-    books.value = await safeInvoke<AccountBook[]>("list_books");
+    const res = await safeInvoke<PaginatedBooks>("list_books", {
+      page: currentPage.value,
+      pageSize: pageSize.value,
+    });
+    books.value = res.books;
+    total.value = res.total;
   } catch (e: any) {
     ElMessage.error(e || "加载失败");
   } finally {
     loading.value = false;
   }
+}
+
+function handleSizeChange() {
+  currentPage.value = 1;
+  fetchBooks();
 }
 
 function openCreate() {
@@ -170,11 +196,16 @@ function formatAmount(val: number): string {
 
 <style scoped lang="scss">
 .book-list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+
   .page-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     margin-bottom: 24px;
+    flex-shrink: 0;
 
     h2 { font-size: 20px; }
   }
@@ -184,11 +215,22 @@ function formatAmount(val: number): string {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 20px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  align-content: start;
 
   .el-empty {
     grid-column: 1 / -1;
     justify-self: center;
   }
+}
+
+.pagination-wrapper {
+  display: flex;
+  justify-content: center;
+  margin-top: 24px;
+  flex-shrink: 0;
 }
 
 .book-card {

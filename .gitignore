@@ -39,6 +39,7 @@ Thumbs.db
 
 # Local assistant/tooling settings
 .claude/
+.ai-guides/
 
 # Temporary files
 tmp/
