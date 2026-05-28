@@ -824,11 +824,20 @@ async function handleUnsettle(record: IncomeRecord) {
 
 // ===== Export (T17) =====
 
+function sanitizeFileName(name: string): string {
+  return (
+    name
+      .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
+      .replace(/[. ]+$/g, "")
+      .trim() || "未命名账本"
+  );
+}
+
 async function exportSelected() {
   try {
     const savePath = await save({
       title: "保存账单",
-      defaultPath: `账单_${bookName.value}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      defaultPath: `账单_${sanitizeFileName(bookName.value)}_${new Date().toISOString().slice(0, 10)}.xlsx`,
       filters: [{ name: "Excel", extensions: ["xlsx"] }],
     });
     if (!savePath) return;
@@ -848,7 +857,7 @@ async function exportAllUnsettled() {
   try {
     const savePath = await save({
       title: "保存全部未结清账单",
-      defaultPath: `全部未结清_${bookName.value}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      defaultPath: `全部未结清_${sanitizeFileName(bookName.value)}_${new Date().toISOString().slice(0, 10)}.xlsx`,
       filters: [{ name: "Excel", extensions: ["xlsx"] }],
     });
     if (!savePath) return;
