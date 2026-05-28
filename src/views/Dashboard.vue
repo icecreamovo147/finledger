@@ -332,8 +332,9 @@ const chartOption = computed(() => {
         })),
         barMaxWidth: 28,
       },
-  ],
-}));
+    ],
+  };
+});
 
 onMounted(async () => {
   try {
