@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { ref, computed, watch, onScopeDispose } from "vue";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 
 export type ThemeMode = "light" | "dark" | "auto";
 
@@ -40,7 +41,15 @@ export const useThemeStore = defineStore("theme", () => {
     }
 
     try {
-      await getCurrentWindow().setTheme(resolvedTheme.value);
+      const currentWindow = getCurrentWindow();
+      await currentWindow.setTheme(mode.value === "auto" ? null : resolvedTheme.value);
+
+      if (mode.value === "auto") {
+        const windowTheme = await currentWindow.theme();
+        if (windowTheme) {
+          systemDark.value = windowTheme === "dark";
+        }
+      }
     } catch (error) {
       console.warn("Failed to update native window theme", error);
     }
@@ -64,8 +73,8 @@ export const useThemeStore = defineStore("theme", () => {
     localStorage.setItem(STORAGE_KEY, val);
   });
 
-  // Apply theme when resolvedTheme changes
-  watch(resolvedTheme, () => {
+  // Apply theme when the effective theme or follow-system mode changes.
+  watch([resolvedTheme, mode], () => {
     // Add transition class for smooth switching
     document.documentElement.classList.add("theme-transition");
     applyTheme();
@@ -82,8 +91,25 @@ export const useThemeStore = defineStore("theme", () => {
   }
   mediaQuery.addEventListener("change", onSystemThemeChange);
 
+  let unlistenTauriTheme: UnlistenFn | null = null;
+  if (isTauri()) {
+    void getCurrentWindow()
+      .onThemeChanged(({ payload }) => {
+        if (mode.value === "auto") {
+          systemDark.value = payload === "dark";
+        }
+      })
+      .then((unlisten) => {
+        unlistenTauriTheme = unlisten;
+      })
+      .catch((error) => {
+        console.warn("Failed to listen for native theme changes", error);
+      });
+  }
+
   onScopeDispose(() => {
     mediaQuery.removeEventListener("change", onSystemThemeChange);
+    unlistenTauriTheme?.();
   });
 
   return { mode, systemDark, resolvedTheme, setMode, cycleMode };
