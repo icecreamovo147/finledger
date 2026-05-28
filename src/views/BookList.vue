@@ -234,16 +234,16 @@ function formatAmount(val: number): string {
 }
 
 .book-card {
-  background: #fff;
+  background: var(--card-bg);
   border-radius: 10px;
   padding: 24px;
   cursor: pointer;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--border-color);
   transition: box-shadow 180ms ease, transform 180ms ease, border-color 180ms ease;
 
   &:hover {
-    border-color: #dcdfe6;
-    box-shadow: 0 8px 22px rgba(31, 45, 61, 0.08);
+    border-color: var(--border-hover);
+    box-shadow: var(--card-shadow-hover);
     transform: translateY(-2px);
   }
 
@@ -253,7 +253,7 @@ function formatAmount(val: number): string {
     justify-content: space-between;
     margin-bottom: 8px;
 
-    h3 { font-size: 17px; color: #303133; }
+    h3 { font-size: 17px; color: var(--text-heading); }
 
     .book-actions {
       opacity: 0.72;
@@ -264,7 +264,7 @@ function formatAmount(val: number): string {
   &:hover .book-actions { opacity: 1; }
 
   .book-remark {
-    color: #909399;
+    color: var(--text-tertiary);
     font-size: 13px;
     margin-bottom: 16px;
     min-height: 20px;
@@ -274,14 +274,14 @@ function formatAmount(val: number): string {
     display: flex;
     gap: 32px;
     padding-top: 16px;
-    border-top: 1px solid #f2f3f5;
+    border-top: 1px solid var(--border-color);
 
     .stat {
       display: flex;
       flex-direction: column;
 
-      .stat-value { font-size: 18px; font-weight: 600; color: #303133; }
-      .stat-label { font-size: 12px; color: #909399; margin-top: 2px; }
+      .stat-value { font-size: 18px; font-weight: 600; color: var(--text-heading); }
+      .stat-label { font-size: 12px; color: var(--text-tertiary); margin-top: 2px; }
     }
   }
 }
