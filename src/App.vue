@@ -5,12 +5,17 @@
 <script setup lang="ts">
 import { onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { ElMessageBox, ElMessage } from "element-plus";
+import { ElMessageBox } from "element-plus";
 import { useRouter } from "vue-router";
+import { useThemeStore } from "@/stores/theme";
 
 const router = useRouter();
+const themeStore = useThemeStore();
 
 onMounted(async () => {
+  // Initialize theme store (triggers DOM class application via watcher)
+  themeStore.resolvedTheme;
+
   try {
     const integrityError = await invoke<string | null>("check_db_integrity");
     if (integrityError) {
