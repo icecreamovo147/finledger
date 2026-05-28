@@ -69,9 +69,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from "vue";
+import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
 import logoUrl from "@/assets/finledger-logo.png";
@@ -95,19 +94,6 @@ const activeMenu = computed(() => route.path);
 function handleThemeChange(mode: string) {
   themeStore.setMode(mode as "light" | "dark" | "auto");
 }
-
-// Sync Tauri window title bar theme
-watch(
-  () => themeStore.resolvedTheme,
-  (theme) => {
-    try {
-      getCurrentWindow().setTheme(theme === "dark" ? "dark" : "light");
-    } catch {
-      // ignore if running in browser dev mode
-    }
-  },
-  { immediate: true }
-);
 
 async function handleLogout() {
   await authStore.logout();

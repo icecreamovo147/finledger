@@ -1,5 +1,5 @@
 use finledger_lib::commands::record;
-use finledger_lib::db::DbState;
+use finledger_lib::db::{sqlite_options, DbState};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::io::Write as IoWrite;
 use std::path::PathBuf;
@@ -259,8 +259,7 @@ async fn test_full_backup_restore_with_images() {
     std::fs::create_dir_all(&images_dir).unwrap();
 
     let db_path = app_dir.join("finledger.db");
-    let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
-    let opts = SqliteConnectOptions::from_str(&db_url).unwrap().foreign_keys(true);
+    let opts = sqlite_options(&db_path);
     let pool = SqlitePoolOptions::new().max_connections(1).connect_with(opts).await.unwrap();
 
     let db = DbState::new(pool, app_dir.clone());
@@ -327,8 +326,7 @@ async fn test_legacy_db_restore_releases_lock() {
     std::fs::create_dir_all(app_dir.join("images")).unwrap();
 
     let db_path = app_dir.join("finledger.db");
-    let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
-    let opts = SqliteConnectOptions::from_str(&db_url).unwrap().foreign_keys(true);
+    let opts = sqlite_options(&db_path);
     let pool = SqlitePoolOptions::new().max_connections(1).connect_with(opts).await.unwrap();
 
     let db = DbState::new(pool, app_dir.clone());
@@ -362,8 +360,7 @@ async fn test_restore_failure_rollback_images() {
     std::fs::create_dir_all(&images_dir).unwrap();
 
     let db_path = app_dir.join("finledger.db");
-    let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
-    let opts = SqliteConnectOptions::from_str(&db_url).unwrap().foreign_keys(true);
+    let opts = sqlite_options(&db_path);
     let pool = SqlitePoolOptions::new().max_connections(1).connect_with(opts).await.unwrap();
 
     let db = DbState::new(pool, app_dir.clone());
@@ -407,8 +404,7 @@ async fn test_restore_images_rollback_on_copy_failure() {
     std::fs::create_dir_all(&images_dir).unwrap();
 
     let db_path = app_dir.join("finledger.db");
-    let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
-    let opts = SqliteConnectOptions::from_str(&db_url).unwrap().foreign_keys(true);
+    let opts = sqlite_options(&db_path);
     let pool = SqlitePoolOptions::new().max_connections(1).connect_with(opts).await.unwrap();
 
     let db = DbState::new(pool, app_dir.clone());
@@ -463,8 +459,7 @@ async fn test_successful_restore_cleanup() {
     std::fs::create_dir_all(&images_dir).unwrap();
 
     let db_path = app_dir.join("finledger.db");
-    let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
-    let opts = SqliteConnectOptions::from_str(&db_url).unwrap().foreign_keys(true);
+    let opts = sqlite_options(&db_path);
     let pool = SqlitePoolOptions::new().max_connections(1).connect_with(opts).await.unwrap();
 
     let db = DbState::new(pool, app_dir.clone());
