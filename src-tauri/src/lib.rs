@@ -2,10 +2,9 @@ pub mod commands;
 pub mod db;
 pub mod models;
 
-use db::DbState;
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use db::{sqlite_options, DbState};
+use sqlx::sqlite::SqlitePoolOptions;
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -24,18 +23,11 @@ pub fn run() {
             std::fs::create_dir_all(app_dir.join("images")).ok();
 
             let db_path = app_dir.join("finledger.db");
-            let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
 
             let pool = tauri::async_runtime::block_on(async {
-                let opts = SqliteConnectOptions::from_str(&db_url)
-                    .expect("invalid database URL")
-                    .foreign_keys(true)
-                    .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-                    .synchronous(sqlx::sqlite::SqliteSynchronous::Full)
-                    .busy_timeout(std::time::Duration::from_secs(5));
                 SqlitePoolOptions::new()
                     .max_connections(5)
-                    .connect_with(opts)
+                    .connect_with(sqlite_options(&db_path))
                     .await
                     .expect("failed to connect to database")
             });

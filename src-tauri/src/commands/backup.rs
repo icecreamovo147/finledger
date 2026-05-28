@@ -1,10 +1,9 @@
-use crate::db::DbState;
+use crate::db::{sqlite_options, DbState};
 use crate::models::BackupManifest;
 use sha2::{Digest, Sha256};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::sqlite::SqlitePoolOptions;
 use std::io::{Read as IoRead, Write};
 use std::path::Path;
-use std::str::FromStr;
 use tauri::State;
 use zip::write::SimpleFileOptions;
 
@@ -386,17 +385,9 @@ async fn restore_db_and_images(
     }
 
     // Create new pool
-    let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
     let new_pool = match SqlitePoolOptions::new()
         .max_connections(5)
-        .connect_with(
-            SqliteConnectOptions::from_str(&db_url)
-                .map_err(|e| e.to_string())?
-                .foreign_keys(true)
-                .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-                .synchronous(sqlx::sqlite::SqliteSynchronous::Full)
-                .busy_timeout(std::time::Duration::from_secs(5)),
-        )
+        .connect_with(sqlite_options(&db_path))
         .await
     {
         Ok(pool) => pool,
@@ -468,17 +459,9 @@ async fn rollback_all(
     }
 
     // Reconnect pool
-    let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
     if let Ok(rollback_pool) = SqlitePoolOptions::new()
         .max_connections(5)
-        .connect_with(
-            SqliteConnectOptions::from_str(&db_url)
-                .unwrap()
-                .foreign_keys(true)
-                .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
-                .synchronous(sqlx::sqlite::SqliteSynchronous::Full)
-                .busy_timeout(std::time::Duration::from_secs(5)),
-        )
+        .connect_with(sqlite_options(&db_path))
         .await
     {
         db.replace_pool(rollback_pool).await;

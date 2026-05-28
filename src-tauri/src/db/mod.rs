@@ -1,6 +1,16 @@
-use sqlx::sqlite::SqlitePool;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+pub fn sqlite_options(path: &Path) -> SqliteConnectOptions {
+    SqliteConnectOptions::new()
+        .filename(path)
+        .create_if_missing(true)
+        .foreign_keys(true)
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+        .synchronous(sqlx::sqlite::SqliteSynchronous::Full)
+        .busy_timeout(std::time::Duration::from_secs(5))
+}
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
