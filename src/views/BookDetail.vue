@@ -113,7 +113,7 @@
       <el-table-column prop="size_info" label="尺寸" width="100" />
       <el-table-column prop="total_amount" label="总金额" width="120" align="right" sortable>
         <template #default="{ row }">
-          <span style="font-weight: 600; color: #303133">
+          <span style="font-weight: 600; color: var(--text-heading)">
             ¥{{ (row.total_amount / 100).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}
           </span>
         </template>
@@ -941,10 +941,10 @@ async function viewDetail(record: IncomeRecord) {
 
     .unsettled-total {
       font-size: 14px;
-      color: #606266;
+      color: var(--text-secondary);
 
       strong {
-        color: #f56c6c;
+        color: var(--color-danger);
         font-size: 16px;
       }
     }
@@ -971,18 +971,18 @@ async function viewDetail(record: IncomeRecord) {
   .upload-trigger {
     width: 80px;
     height: 80px;
-    border: 1px dashed #d9d9d9;
+    border: 1px dashed var(--input-border);
     border-radius: 4px;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    color: #999;
+    color: var(--text-tertiary);
     font-size: 20px;
     transition: border-color 160ms ease, color 160ms ease, background-color 160ms ease;
 
     &:hover {
-      background: #f5f9ff;
+      background: var(--hover-bg);
       border-color: var(--color-primary);
       color: var(--color-primary);
     }
@@ -996,8 +996,8 @@ async function viewDetail(record: IncomeRecord) {
   line-height: 32px;
   text-align: center;
   font-size: 10px;
-  color: #f56c6c;
-  background: #fef0f0;
+  color: var(--color-danger);
+  background: var(--hover-bg);
   border-radius: 3px;
   margin-right: 2px;
   cursor: default;
@@ -1007,15 +1007,15 @@ async function viewDetail(record: IncomeRecord) {
   width: 120px;
   height: 120px;
   border-radius: 6px;
-  background: #f5f7fa;
-  border: 1px dashed #dcdfe6;
+  background: var(--hover-bg);
+  border: 1px dashed var(--border-hover);
   display: flex;
   align-items: center;
   justify-content: center;
   margin-right: 8px;
   span {
     font-size: 12px;
-    color: #f56c6c;
+    color: var(--color-danger);
   }
   &.large {
     width: 100%;
@@ -1030,13 +1030,13 @@ async function viewDetail(record: IncomeRecord) {
   width: 56px;
   height: 56px;
   border-radius: 4px;
-  background: #f5f7fa;
+  background: var(--hover-bg);
   border: 2px solid transparent;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 10px;
-  color: #f56c6c;
+  color: var(--color-danger);
   cursor: pointer;
   transition: border-color 160ms ease;
   &.active {
