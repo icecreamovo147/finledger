@@ -11,15 +11,96 @@ html, body, #app {
     "Microsoft YaHei", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  color: #2c3e50;
 }
 
 :root {
+  // Brand colors (shared across themes)
   --color-primary: #409eff;
   --color-success: #67c23a;
   --color-warning: #e6a23c;
   --color-danger: #f56c6c;
   --sidebar-width: 220px;
+
+  // Light theme (default)
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f7fa;
+  --bg-sidebar: #1a1a2e;
+  --text-primary: #2c3e50;
+  --text-secondary: #606266;
+  --text-tertiary: #909399;
+  --text-sidebar: #a0a0b0;
+  --text-sidebar-active: #ffffff;
+  --text-heading: #303133;
+  --border-color: #ebeef5;
+  --border-hover: #dcdfe6;
+  --card-bg: #ffffff;
+  --card-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  --card-shadow-hover: 0 8px 22px rgba(31, 45, 61, 0.08);
+  --hover-bg: #f5f7fa;
+  --input-border: #dcdfe6;
+  --login-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #6B8DD6 100%);
+  --chart-color-1: #409eff;
+  --chart-color-2: #67c23a;
+  --chart-color-3: #f56c6c;
+  --chart-color-4: #e6a23c;
+  --chart-color-5: #909399;
+}
+
+html.dark {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-sidebar: #0f0f1a;
+  --text-primary: #e0e0e8;
+  --text-secondary: #a0a0b0;
+  --text-tertiary: #7a7a8e;
+  --text-sidebar: #a0a0b0;
+  --text-sidebar-active: #ffffff;
+  --text-heading: #e0e0e8;
+  --border-color: #2a2a3e;
+  --border-hover: #3a3a4e;
+  --card-bg: #1e1e36;
+  --card-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+  --card-shadow-hover: 0 8px 22px rgba(0, 0, 0, 0.4);
+  --hover-bg: #2a2a3e;
+  --input-border: #3a3a4e;
+  --login-gradient: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  --chart-color-1: #66b1ff;
+  --chart-color-2: #85ce61;
+  --chart-color-3: #f78989;
+  --chart-color-4: #ebb563;
+  --chart-color-5: #b1b3b8;
+
+  // vxe-table dark overrides
+  --vxe-ui-font-color: #e0e0e8;
+  --vxe-ui-layout-background-color: #1a1a2e;
+  --vxe-table-header-background-color: #0f0f1a;
+  --vxe-table-body-background-color: #1e1e36;
+  --vxe-table-row-hover-background-color: #2a2a3e;
+  --vxe-table-row-current-background-color: #2a2a3e;
+  --vxe-ui-border-color: #2a2a3e;
+  --vxe-ui-font-light-color: #a0a0b0;
+  --vxe-modal-header-background-color: #1a1a2e;
+  --vxe-modal-body-background-color: #1e1e36;
+  --vxe-input-background-color: #1e1e36;
+  --vxe-button-default-background-color: #2a2a3e;
+}
+
+// Global background follows theme
+html {
+  background-color: var(--bg-secondary);
+}
+body, #app {
+  color: var(--text-primary);
+  background-color: var(--bg-secondary);
+}
+
+// Smooth theme transition
+html.theme-transition,
+html.theme-transition *,
+html.theme-transition *::before,
+html.theme-transition *::after {
+  transition: background-color 0.3s ease, color 0.3s ease,
+              border-color 0.3s ease, box-shadow 0.3s ease !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
