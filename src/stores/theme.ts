@@ -1,5 +1,7 @@
 import { defineStore } from "pinia";
 import { ref, computed, watch, onScopeDispose } from "vue";
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export type ThemeMode = "light" | "dark" | "auto";
 
@@ -29,6 +31,19 @@ export const useThemeStore = defineStore("theme", () => {
     } else {
       html.classList.remove("dark");
     }
+    html.style.colorScheme = resolvedTheme.value;
+  }
+
+  async function applyWindowTheme() {
+    if (!isTauri()) {
+      return;
+    }
+
+    try {
+      await getCurrentWindow().setTheme(resolvedTheme.value);
+    } catch (error) {
+      console.warn("Failed to update native window theme", error);
+    }
   }
 
   function setMode(newMode: ThemeMode) {
@@ -54,6 +69,7 @@ export const useThemeStore = defineStore("theme", () => {
     // Add transition class for smooth switching
     document.documentElement.classList.add("theme-transition");
     applyTheme();
+    void applyWindowTheme();
     setTimeout(() => {
       document.documentElement.classList.remove("theme-transition");
     }, 300);
