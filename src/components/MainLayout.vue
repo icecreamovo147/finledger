@@ -32,15 +32,28 @@
       <div class="sidebar-footer">
         <span>{{ authStore.user?.username }}</span>
         <div class="footer-actions">
-          <el-tooltip :content="themeTooltip" placement="top">
-            <el-button text size="small" @click="themeStore.cycleMode()">
+          <el-dropdown trigger="click" @command="handleThemeChange">
+            <el-button text size="small">
               <el-icon :size="16">
                 <Sunny v-if="themeStore.mode === 'light'" />
                 <Moon v-else-if="themeStore.mode === 'dark'" />
                 <Monitor v-else />
               </el-icon>
             </el-button>
-          </el-tooltip>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="light" :class="{ 'is-active': themeStore.mode === 'light' }">
+                  <el-icon><Sunny /></el-icon>亮色
+                </el-dropdown-item>
+                <el-dropdown-item command="dark" :class="{ 'is-active': themeStore.mode === 'dark' }">
+                  <el-icon><Moon /></el-icon>暗色
+                </el-dropdown-item>
+                <el-dropdown-item command="auto" :class="{ 'is-active': themeStore.mode === 'auto' }">
+                  <el-icon><Monitor /></el-icon>跟随系统
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-button text size="small" @click="handleLogout">退出</el-button>
         </div>
       </div>
@@ -56,8 +69,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
 import logoUrl from "@/assets/finledger-logo.png";
@@ -78,14 +92,22 @@ const themeStore = useThemeStore();
 
 const activeMenu = computed(() => route.path);
 
-const themeTooltip = computed(() => {
-  const labels: Record<string, string> = {
-    light: "亮色模式（点击切换）",
-    dark: "暗色模式（点击切换）",
-    auto: "跟随系统（点击切换）",
-  };
-  return labels[themeStore.mode];
-});
+function handleThemeChange(mode: string) {
+  themeStore.setMode(mode as "light" | "dark" | "auto");
+}
+
+// Sync Tauri window title bar theme
+watch(
+  () => themeStore.resolvedTheme,
+  (theme) => {
+    try {
+      getCurrentWindow().setTheme(theme === "dark" ? "dark" : "light");
+    } catch {
+      // ignore if running in browser dev mode
+    }
+  },
+  { immediate: true }
+);
 
 async function handleLogout() {
   await authStore.logout();
@@ -106,6 +128,7 @@ async function handleLogout() {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  border-right: 1px solid var(--border-color);
 
   .sidebar-header {
     height: 60px;
@@ -113,7 +136,7 @@ async function handleLogout() {
     align-items: center;
     justify-content: center;
     gap: 10px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid var(--border-color);
 
     .app-logo {
       width: 32px;
@@ -124,7 +147,7 @@ async function handleLogout() {
     }
 
     h1 {
-      color: var(--text-sidebar-active);
+      color: var(--text-heading);
       font-size: 18px;
       font-weight: 600;
     }
@@ -137,7 +160,7 @@ async function handleLogout() {
 
   .sidebar-footer {
     padding: 12px 16px;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid var(--border-color);
     display: flex;
     align-items: center;
     justify-content: space-between;
