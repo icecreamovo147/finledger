@@ -156,6 +156,16 @@ async function handleLogout() {
   .el-menu {
     flex: 1;
     border-right: none;
+
+    :deep(.el-menu-item) {
+      &:hover {
+        background-color: var(--hover-bg);
+      }
+
+      &.is-active {
+        background-color: var(--hover-bg);
+      }
+    }
   }
 
   .sidebar-footer {
