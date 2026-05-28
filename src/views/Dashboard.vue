@@ -126,6 +126,8 @@ import { CanvasRenderer } from "echarts/renderers";
 import type { DashboardStats, IncomeCategory } from "@/types";
 import { IncomeCategoryLabels } from "@/types";
 import { safeInvoke } from "@/utils/invoke";
+import { useThemeStore } from "@/stores/theme";
+import { getChartColors, getChartTextColor } from "@/utils/chart-theme";
 
 use([BarChart, LineChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer]);
 
@@ -141,6 +143,7 @@ const stats = ref<DashboardStats>({
 });
 
 const rangeMonths = ref<6 | 12>(12);
+const themeStore = useThemeStore();
 
 const incomeTrendData = computed(() => stats.value.income_trend.slice(-rangeMonths.value));
 const settlementTrendData = computed(() => stats.value.settlement_trend.slice(-rangeMonths.value));
@@ -152,167 +155,183 @@ const settlementTrendHasData = computed(() =>
 );
 const categoryShareHasData = computed(() => categoryShareData.value.some((item) => item.amount > 0));
 
-const incomeTrendOption = computed(() => ({
-  tooltip: {
-    trigger: "axis",
-    formatter: (params: any) => {
-      const item = params?.[0];
-      if (!item) return "";
-      return `${item.axisValue}<br/>收入: ¥${(item.data / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`;
+const incomeTrendOption = computed(() => {
+  const colors = getChartColors();
+  return {
+    tooltip: {
+      trigger: "axis",
+      formatter: (params: any) => {
+        const item = params?.[0];
+        if (!item) return "";
+        return `${item.axisValue}<br/>收入: ¥${(item.data / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`;
+      },
     },
-  },
-  grid: {
-    left: "3%",
-    right: "6%",
-    bottom: "3%",
-    containLabel: true,
-  },
-  xAxis: {
-    type: "category",
-    data: incomeTrendData.value.map((item) => item.month),
-  },
-  yAxis: {
-    type: "value",
-    axisLabel: {
-      formatter: (v: number) => `¥${(v / 100 / 10000).toFixed(1)}万`,
+    grid: {
+      left: "3%",
+      right: "6%",
+      bottom: "3%",
+      containLabel: true,
     },
-  },
-  series: [
-    {
-      type: "line",
-      data: incomeTrendData.value.map((item) => item.total_amount),
-      smooth: true,
-      showSymbol: false,
-      lineStyle: { color: "#409eff", width: 3 },
-      areaStyle: { color: "rgba(64, 158, 255, 0.15)" },
+    xAxis: {
+      type: "category",
+      data: incomeTrendData.value.map((item) => item.month),
+      axisLabel: { color: getChartTextColor() },
     },
-  ],
-}));
+    yAxis: {
+      type: "value",
+      axisLabel: {
+        formatter: (v: number) => `¥${(v / 100 / 10000).toFixed(1)}万`,
+        color: getChartTextColor(),
+      },
+      splitLine: { lineStyle: { color: "var(--border-color)" } },
+    },
+    series: [
+      {
+        type: "line",
+        data: incomeTrendData.value.map((item) => item.total_amount),
+        smooth: true,
+        showSymbol: false,
+        lineStyle: { color: colors[0], width: 3 },
+        areaStyle: { color: colors[0] + "40" },
+      },
+    ],
+  };
+});
 
-const settlementTrendOption = computed(() => ({
-  tooltip: {
-    trigger: "axis",
-    axisPointer: { type: "shadow" },
-    formatter: (params: any[]) => {
-      if (!params?.length) return "";
-      const sorted = [...params].sort((a, b) => b.value - a.value);
-      const lines = sorted.map(
-        (item) => `${item.seriesName}: ¥${(item.value / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`,
-      );
-      return `${sorted[0]?.axisValue || ""}<br/>${lines.join("<br/>")}`;
+const settlementTrendOption = computed(() => {
+  const colors = getChartColors();
+  return {
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      formatter: (params: any[]) => {
+        if (!params?.length) return "";
+        const sorted = [...params].sort((a, b) => b.value - a.value);
+        const lines = sorted.map(
+          (item) => `${item.seriesName}: ¥${(item.value / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`,
+        );
+        return `${sorted[0]?.axisValue || ""}<br/>${lines.join("<br/>")}`;
+      },
     },
-  },
-  legend: {
-    top: 0,
-    data: ["已收", "应收"],
-  },
-  grid: {
-    left: "3%",
-    right: "6%",
-    bottom: "3%",
-    containLabel: true,
-  },
-  xAxis: {
-    type: "category",
-    data: settlementTrendData.value.map((item) => item.month),
-  },
-  yAxis: {
-    type: "value",
-    axisLabel: {
-      formatter: (v: number) => `¥${(v / 100 / 10000).toFixed(1)}万`,
+    legend: {
+      top: 0,
+      data: ["已收", "应收"],
+      textStyle: { color: getChartTextColor() },
     },
-  },
-  series: [
-    {
-      name: "已收",
-      type: "bar",
-      stack: "total",
-      data: settlementTrendData.value.map((item) => item.settled_amount),
-      itemStyle: { color: "#67c23a", borderRadius: [4, 4, 0, 0] },
-      barMaxWidth: 30,
+    grid: {
+      left: "3%",
+      right: "6%",
+      bottom: "3%",
+      containLabel: true,
     },
-    {
-      name: "应收",
-      type: "bar",
-      stack: "total",
-      data: settlementTrendData.value.map((item) => item.unsettled_amount),
-      itemStyle: { color: "#f56c6c", borderRadius: [4, 4, 0, 0] },
-      barMaxWidth: 30,
+    xAxis: {
+      type: "category",
+      data: settlementTrendData.value.map((item) => item.month),
+      axisLabel: { color: getChartTextColor() },
     },
-  ],
-}));
+    yAxis: {
+      type: "value",
+      axisLabel: {
+        formatter: (v: number) => `¥${(v / 100 / 10000).toFixed(1)}万`,
+        color: getChartTextColor(),
+      },
+      splitLine: { lineStyle: { color: "var(--border-color)" } },
+    },
+    series: [
+      {
+        name: "已收",
+        type: "bar",
+        stack: "total",
+        data: settlementTrendData.value.map((item) => item.settled_amount),
+        itemStyle: { color: colors[1], borderRadius: [4, 4, 0, 0] },
+        barMaxWidth: 30,
+      },
+      {
+        name: "应收",
+        type: "bar",
+        stack: "total",
+        data: settlementTrendData.value.map((item) => item.unsettled_amount),
+        itemStyle: { color: colors[2], borderRadius: [4, 4, 0, 0] },
+        barMaxWidth: 30,
+      },
+    ],
+  };
+});
 
-const categoryShareOption = computed(() => ({
-  tooltip: {
-    trigger: "item",
-    formatter: (item: any) => {
-      const name = item.name || "";
-      return `${name}<br/>¥${(item.value / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} (${item.percent}%)`;
+const categoryShareOption = computed(() => {
+  const colors = getChartColors();
+  return {
+    tooltip: {
+      trigger: "item",
+      formatter: (item: any) => {
+        const name = item.name || "";
+        return `${name}<br/>¥${(item.value / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} (${item.percent}%)`;
+      },
     },
-  },
-  legend: {
-    bottom: 0,
-    type: "scroll",
-  },
-  series: [
-    {
-      type: "pie",
-      radius: ["45%", "65%"],
-      center: ["50%", "45%"],
-      data: categoryShareData.value.map((item) => ({
-        name: IncomeCategoryLabels[item.category as IncomeCategory] || item.category,
-        value: item.amount,
-      })),
-      label: { formatter: "{b}" },
+    legend: {
+      bottom: 0,
+      type: "scroll",
+      textStyle: { color: getChartTextColor() },
     },
-  ],
-}));
+    color: colors,
+    series: [
+      {
+        type: "pie",
+        radius: ["45%", "65%"],
+        center: ["50%", "45%"],
+        data: categoryShareData.value.map((item) => ({
+          name: IncomeCategoryLabels[item.category as IncomeCategory] || item.category,
+          value: item.amount,
+        })),
+        label: { formatter: "{b}", color: getChartTextColor() },
+      },
+    ],
+  };
+});
 
-const chartOption = computed(() => ({
-  tooltip: {
-    trigger: "axis",
-    axisPointer: { type: "shadow" },
-    formatter: (p: any) => {
-      const item = p[0];
-      return `${item.name}<br/>未结清金额: ¥${(item.value / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`;
+const chartOption = computed(() => {
+  const colors = getChartColors();
+  return {
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      formatter: (p: any) => {
+        const item = p[0];
+        return `${item.name}<br/>未结清金额: ¥${(item.value / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`;
+      },
     },
-  },
-  grid: {
-    left: "3%",
-    right: "10%",
-    bottom: "3%",
-    containLabel: true,
-  },
-  xAxis: {
-    type: "value",
-    axisLabel: {
-      formatter: (v: number) => `¥${(v / 100 / 10000).toFixed(1)}万`,
+    grid: {
+      left: "3%",
+      right: "10%",
+      bottom: "3%",
+      containLabel: true,
     },
-  },
-  yAxis: {
-    type: "category",
-    data: stats.value.book_ranking.map((b) => b.book_name),
-    inverse: true,
-  },
-  series: [
-    {
-      type: "bar",
-      data: stats.value.book_ranking.map((b) => ({
-        value: b.unsettled_amount,
-        itemStyle: {
-          color: (() => {
-            const colors = [
-              "#f56c6c", "#e6a23c", "#409eff", "#67c23a", "#909399",
-              "#f56c6c", "#e6a23c", "#409eff", "#67c23a", "#909399",
-            ];
-            const idx = stats.value.book_ranking.indexOf(b);
-            return colors[idx % colors.length];
-          })(),
-          borderRadius: [0, 4, 4, 0],
-        },
-      })),
-      barMaxWidth: 28,
+    xAxis: {
+      type: "value",
+      axisLabel: {
+        formatter: (v: number) => `¥${(v / 100 / 10000).toFixed(1)}万`,
+        color: getChartTextColor(),
+      },
+      splitLine: { lineStyle: { color: "var(--border-color)" } },
     },
+    yAxis: {
+      type: "category",
+      data: stats.value.book_ranking.map((b) => b.book_name),
+      inverse: true,
+      axisLabel: { color: getChartTextColor() },
+    },
+    series: [
+      {
+        type: "bar",
+        data: stats.value.book_ranking.map((b, idx) => ({
+          value: b.unsettled_amount,
+          itemStyle: {
+            color: colors[idx % colors.length],
+            borderRadius: [0, 4, 4, 0],
+          },
+        })),
+        barMaxWidth: 28,
+      },
   ],
 }));
 
@@ -341,18 +360,18 @@ onMounted(async () => {
 }
 
 .stat-card {
-  background: #fff;
+  background: var(--card-bg);
   border-radius: 10px;
   padding: 24px;
   display: flex;
   align-items: center;
   gap: 16px;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--border-color);
   transition: box-shadow 180ms ease, transform 180ms ease, border-color 180ms ease;
 
   &:hover {
-    border-color: #dcdfe6;
-    box-shadow: 0 8px 22px rgba(31, 45, 61, 0.08);
+    border-color: var(--border-hover);
+    box-shadow: var(--card-shadow-hover);
     transform: translateY(-2px);
   }
 
@@ -367,21 +386,21 @@ onMounted(async () => {
     color: #fff;
   }
 
-  &.income .stat-icon { background: #409eff; }
-  &.unsettled .stat-icon { background: #f56c6c; }
-  &.count .stat-icon { background: #67c23a; }
-  &.pending .stat-icon { background: #e6a23c; }
+  &.income .stat-icon { background: var(--color-primary); }
+  &.unsettled .stat-icon { background: var(--color-danger); }
+  &.count .stat-icon { background: var(--color-success); }
+  &.pending .stat-icon { background: var(--color-warning); }
 
   .stat-info {
     .stat-value {
       font-size: 22px;
       font-weight: 700;
-      color: #303133;
+      color: var(--text-heading);
       margin-bottom: 4px;
     }
     .stat-label {
       font-size: 13px;
-      color: #909399;
+      color: var(--text-tertiary);
     }
   }
 }
@@ -405,15 +424,15 @@ onMounted(async () => {
 }
 
 .chart-card {
-  background: #fff;
+  background: var(--card-bg);
   border-radius: 10px;
   padding: 24px;
-  border: 1px solid #ebeef5;
+  border: 1px solid var(--border-color);
   transition: box-shadow 180ms ease, border-color 180ms ease;
 
   &:hover {
-    border-color: #dcdfe6;
-    box-shadow: 0 8px 22px rgba(31, 45, 61, 0.06);
+    border-color: var(--border-hover);
+    box-shadow: var(--card-shadow-hover);
   }
 
   h3 {
