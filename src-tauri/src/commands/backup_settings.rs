@@ -305,11 +305,19 @@ pub fn apply_retention(settings: &BackupSettings, backups: &[BackupFileInfo]) ->
         None => return result,
     };
 
-    // Filter auto backups that are valid and in the configured directory
+    // Filter auto backups that are valid and in the configured directory.
+    // Use canonicalized paths for case-insensitive comparison on Windows.
+    let canonical_target = target_dir.canonicalize().ok();
     let mut auto_backups: Vec<&BackupFileInfo> = backups
         .iter()
         .filter(|b| {
-            b.backup_type == "auto" && b.is_valid && Path::new(&b.path).parent() == Some(target_dir)
+            b.backup_type == "auto"
+                && b.is_valid
+                && Path::new(&b.path).parent().map_or(false, |p| {
+                    canonical_target
+                        .as_ref()
+                        .map_or(false, |ct| p.canonicalize().ok().as_ref() == Some(ct))
+                })
         })
         .collect();
 

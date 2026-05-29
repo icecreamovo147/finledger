@@ -223,10 +223,17 @@ async fn restore_db_and_images(
 
     std::fs::copy(&db_path, &backup_current).map_err(|e| format!("备份当前数据库失败: {}", e))?;
     if wal_path.exists() {
-        std::fs::copy(&wal_path, &backup_wal).ok();
+        std::fs::copy(&wal_path, &backup_wal).map_err(|e| {
+            let _ = std::fs::remove_file(&backup_current);
+            format!("备份WAL文件失败: {}", e)
+        })?;
     }
     if shm_path.exists() {
-        std::fs::copy(&shm_path, &backup_shm).ok();
+        std::fs::copy(&shm_path, &backup_shm).map_err(|e| {
+            let _ = std::fs::remove_file(&backup_current);
+            let _ = std::fs::remove_file(&backup_wal);
+            format!("备份SHM文件失败: {}", e)
+        })?;
     }
 
     // Back up current images directory for rollback
@@ -255,12 +262,62 @@ async fn restore_db_and_images(
         old_pool.close().await;
     }
 
-    // Remove WAL and SHM files
-    std::fs::remove_file(&wal_path).ok();
-    std::fs::remove_file(&shm_path).ok();
+    // Remove WAL and SHM files — must succeed before replacing DB
+    if wal_path.exists() {
+        if let Err(e) = std::fs::remove_file(&wal_path) {
+            rollback_all(
+                db,
+                &db_path,
+                &wal_path,
+                &shm_path,
+                &backup_current,
+                &backup_wal,
+                &backup_shm,
+                &backup_images_dir,
+                has_images_backup,
+            )
+            .await;
+            return Err(format!("无法删除WAL文件，恢复中止: {}", e));
+        }
+    }
+    if shm_path.exists() {
+        if let Err(e) = std::fs::remove_file(&shm_path) {
+            rollback_all(
+                db,
+                &db_path,
+                &wal_path,
+                &shm_path,
+                &backup_current,
+                &backup_wal,
+                &backup_shm,
+                &backup_images_dir,
+                has_images_backup,
+            )
+            .await;
+            return Err(format!("无法删除SHM文件，恢复中止: {}", e));
+        }
+    }
 
-    // Replace database file
-    if let Err(e) = std::fs::copy(new_db_path, &db_path) {
+    // Replace database file atomically (temp + rename)
+    let tmp_db = db_path.with_extension("db.restore_tmp");
+    if let Err(e) = std::fs::copy(new_db_path, &tmp_db) {
+        let _ = std::fs::remove_file(&tmp_db);
+        rollback_all(
+            db,
+            &db_path,
+            &wal_path,
+            &shm_path,
+            &backup_current,
+            &backup_wal,
+            &backup_shm,
+            &backup_images_dir,
+            has_images_backup,
+        )
+        .await;
+        return Err(format!("恢复失败，已回滚: {}", e));
+    }
+    if let Err(e) = std::fs::rename(&tmp_db, &db_path) {
+        let _ = std::fs::remove_file(&tmp_db);
         rollback_all(
             db,
             &db_path,
@@ -457,7 +514,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
     for entry in entries {
         let entry = entry.map_err(|e| e.to_string())?;
         let src_path = entry.path();
-        let dst_path = dst.join(src_path.file_name().unwrap());
+        let dst_path = dst.join(src_path.file_name().ok_or("无法获取文件名")?);
         if src_path.is_dir() {
             copy_dir_recursive(&src_path, &dst_path)?;
         } else {

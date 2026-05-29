@@ -222,14 +222,14 @@ impl DbState {
                 CREATE TABLE IF NOT EXISTS income_records (
                     id                INTEGER PRIMARY KEY AUTOINCREMENT,
                     book_id           INTEGER NOT NULL,
-                    date              TEXT    NOT NULL,
+                    date              TEXT    NOT NULL CHECK (date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
                     service_content   TEXT    NOT NULL,
                     specification     TEXT    DEFAULT '',
                     quantity          INTEGER,
                     unit              TEXT    DEFAULT '',
                     unit_price        INTEGER,
                     total_amount      INTEGER NOT NULL,
-                    settlement_status TEXT    NOT NULL DEFAULT 'unsettled',
+                    settlement_status TEXT    NOT NULL DEFAULT 'unsettled' CHECK (settlement_status IN ('unsettled', 'settled')),
                     payment_date      TEXT,
                     payment_method    TEXT,
                     remark            TEXT    DEFAULT '',
@@ -260,6 +260,7 @@ impl DbState {
             ),
             (8, "create_indices", ""),     // handled specially below
             (10, "unique_book_names", ""), // handled specially below
+            (11, "add_check_constraints", ""), // handled specially below
         ];
 
         for (version, name, sql) in &migrations {
@@ -293,7 +294,7 @@ impl DbState {
                 continue;
             }
 
-            if *version == 10 {
+            if *version == 10 || *version == 11 {
                 continue; // handled specially below
             }
 
@@ -395,28 +396,28 @@ impl DbState {
             if !has_service_fields {
                 // Prevent other connections from accessing the database while
                 // we rebuild the table with foreign_keys disabled.
-                let _maintenance_guard = self.maintenance_guard()
-                    .map_err(|e| sqlx::Error::Protocol(e))?;
-
-                let mut conn = pool.acquire().await?;
-                sqlx::query("PRAGMA foreign_keys = OFF")
-                    .execute(&mut *conn)
-                    .await?;
-                let migration_result: Result<(), sqlx::Error> = async {
-                    let mut tx = conn.begin().await?;
-                    sqlx::query(
-                        r#"
+                // If the guard is held by a concurrent backup, skip this run
+                // and retry on next startup instead of crashing.
+                if let Ok(_maintenance_guard) = self.maintenance_guard() {
+                    let mut conn = pool.acquire().await?;
+                    sqlx::query("PRAGMA foreign_keys = OFF")
+                        .execute(&mut *conn)
+                        .await?;
+                    let migration_result: Result<(), sqlx::Error> = async {
+                        let mut tx = conn.begin().await?;
+                        sqlx::query(
+                            r#"
                         CREATE TABLE income_records_new (
                             id                INTEGER PRIMARY KEY AUTOINCREMENT,
                             book_id           INTEGER NOT NULL,
-                            date              TEXT    NOT NULL,
+                            date              TEXT    NOT NULL CHECK (date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
                             service_content   TEXT    NOT NULL,
                             specification     TEXT    DEFAULT '',
                             quantity          INTEGER,
                             unit              TEXT    DEFAULT '',
                             unit_price        INTEGER,
                             total_amount      INTEGER NOT NULL,
-                            settlement_status TEXT    NOT NULL DEFAULT 'unsettled',
+                            settlement_status TEXT    NOT NULL DEFAULT 'unsettled' CHECK (settlement_status IN ('unsettled', 'settled')),
                             payment_date      TEXT,
                             payment_method    TEXT,
                             remark            TEXT    DEFAULT '',
@@ -425,12 +426,12 @@ impl DbState {
                             FOREIGN KEY (book_id) REFERENCES account_books(id) ON DELETE CASCADE
                         )
                         "#,
-                    )
-                    .execute(&mut *tx)
-                    .await?;
+                        )
+                        .execute(&mut *tx)
+                        .await?;
 
-                    sqlx::query(
-                        r#"
+                        sqlx::query(
+                            r#"
                         INSERT INTO income_records_new (
                             id, book_id, date, service_content, specification, quantity, unit,
                             unit_price, total_amount, settlement_status, payment_date,
@@ -454,39 +455,42 @@ impl DbState {
                             updated_at
                         FROM income_records
                         "#,
-                    )
-                    .execute(&mut *tx)
-                    .await?;
+                        )
+                        .execute(&mut *tx)
+                        .await?;
 
-                    sqlx::query("DROP TABLE income_records")
-                        .execute(&mut *tx)
+                        sqlx::query("DROP TABLE income_records")
+                            .execute(&mut *tx)
+                            .await?;
+                        sqlx::query("ALTER TABLE income_records_new RENAME TO income_records")
+                            .execute(&mut *tx)
+                            .await?;
+                        sqlx::query("CREATE INDEX IF NOT EXISTS idx_income_records_book_id ON income_records(book_id)")
+                            .execute(&mut *tx)
+                            .await?;
+                        sqlx::query("CREATE INDEX IF NOT EXISTS idx_income_records_status ON income_records(settlement_status)")
+                            .execute(&mut *tx)
+                            .await?;
+                        sqlx::query("CREATE INDEX IF NOT EXISTS idx_income_records_date ON income_records(date)")
+                            .execute(&mut *tx)
+                            .await?;
+                        sqlx::query("CREATE INDEX IF NOT EXISTS idx_income_images_record_id ON income_images(record_id)")
+                            .execute(&mut *tx)
+                            .await?;
+                        sqlx::query("INSERT INTO schema_migrations (version, name) VALUES (9, 'replace_record_service_fields')")
+                            .execute(&mut *tx)
+                            .await?;
+                        tx.commit().await?;
+                        Ok(())
+                    }
+                    .await;
+                    sqlx::query("PRAGMA foreign_keys = ON")
+                        .execute(&mut *conn)
                         .await?;
-                    sqlx::query("ALTER TABLE income_records_new RENAME TO income_records")
-                        .execute(&mut *tx)
-                        .await?;
-                    sqlx::query("CREATE INDEX IF NOT EXISTS idx_income_records_book_id ON income_records(book_id)")
-                        .execute(&mut *tx)
-                        .await?;
-                    sqlx::query("CREATE INDEX IF NOT EXISTS idx_income_records_status ON income_records(settlement_status)")
-                        .execute(&mut *tx)
-                        .await?;
-                    sqlx::query("CREATE INDEX IF NOT EXISTS idx_income_records_date ON income_records(date)")
-                        .execute(&mut *tx)
-                        .await?;
-                    sqlx::query("CREATE INDEX IF NOT EXISTS idx_income_images_record_id ON income_images(record_id)")
-                        .execute(&mut *tx)
-                        .await?;
-                    sqlx::query("INSERT INTO schema_migrations (version, name) VALUES (9, 'replace_record_service_fields')")
-                        .execute(&mut *tx)
-                        .await?;
-                    tx.commit().await?;
-                    Ok(())
+                    migration_result?;
+                } else {
+                    eprintln!("迁移 9: 无法获取维护锁，将在下次启动重试");
                 }
-                .await;
-                sqlx::query("PRAGMA foreign_keys = ON")
-                    .execute(&mut *conn)
-                    .await?;
-                migration_result?;
             } else {
                 sqlx::query("INSERT INTO schema_migrations (version, name) VALUES (9, 'replace_record_service_fields')")
                     .execute(&pool)
@@ -533,6 +537,60 @@ impl DbState {
 
             sqlx::query(
                 "INSERT INTO schema_migrations (version, name) VALUES (10, 'unique_book_names')",
+            )
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+        }
+
+        // Version 11: add CHECK constraints to income_records via triggers
+        // (SQLite does not support ALTER TABLE ADD CHECK)
+        if !applied_versions.contains(&11) {
+            let mut tx = pool.begin().await?;
+            // Enforce settlement_status IN ('unsettled', 'settled') via triggers
+            sqlx::query(
+                r#"CREATE TRIGGER IF NOT EXISTS income_records_check_settlement_insert
+                BEFORE INSERT ON income_records
+                WHEN NEW.settlement_status NOT IN ('unsettled', 'settled')
+                BEGIN
+                    SELECT RAISE(ABORT, 'settlement_status must be unsettled or settled');
+                END"#,
+            )
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                r#"CREATE TRIGGER IF NOT EXISTS income_records_check_settlement_update
+                BEFORE UPDATE ON income_records
+                WHEN NEW.settlement_status NOT IN ('unsettled', 'settled')
+                BEGIN
+                    SELECT RAISE(ABORT, 'settlement_status must be unsettled or settled');
+                END"#,
+            )
+            .execute(&mut *tx)
+            .await?;
+            // Enforce date format YYYY-MM-DD via triggers
+            sqlx::query(
+                r#"CREATE TRIGGER IF NOT EXISTS income_records_check_date_insert
+                BEFORE INSERT ON income_records
+                WHEN NEW.date NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+                BEGIN
+                    SELECT RAISE(ABORT, 'date must be in YYYY-MM-DD format');
+                END"#,
+            )
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                r#"CREATE TRIGGER IF NOT EXISTS income_records_check_date_update
+                BEFORE UPDATE ON income_records
+                WHEN NEW.date NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+                BEGIN
+                    SELECT RAISE(ABORT, 'date must be in YYYY-MM-DD format');
+                END"#,
+            )
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                "INSERT INTO schema_migrations (version, name) VALUES (11, 'add_check_constraints')",
             )
             .execute(&mut *tx)
             .await?;

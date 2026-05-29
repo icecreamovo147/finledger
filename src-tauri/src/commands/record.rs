@@ -733,10 +733,10 @@ pub async fn settle_record(
 
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    sqlx::query(
+    let result = sqlx::query(
         r#"UPDATE income_records SET
         settlement_status = 'settled', payment_date = ?1, payment_method = ?2, updated_at = ?3
-        WHERE id = ?4"#,
+        WHERE id = ?4 AND settlement_status = 'unsettled'"#,
     )
     .bind(&payment_date)
     .bind(&payment_method)
@@ -745,6 +745,10 @@ pub async fn settle_record(
     .execute(&pool)
     .await
     .map_err(|e| e.to_string())?;
+
+    if result.rows_affected() == 0 {
+        return Err("该记录状态已变更，请刷新后重试".into());
+    }
 
     Ok(())
 }
@@ -768,16 +772,20 @@ pub async fn unsettle_record(db: State<'_, DbState>, token: String, id: i64) -> 
 
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    sqlx::query(
+    let result = sqlx::query(
         r#"UPDATE income_records SET
         settlement_status = 'unsettled', payment_date = NULL, payment_method = NULL, updated_at = ?1
-        WHERE id = ?2"#,
+        WHERE id = ?2 AND settlement_status = 'settled'"#,
     )
     .bind(&now)
     .bind(id)
     .execute(&pool)
     .await
     .map_err(|e| e.to_string())?;
+
+    if result.rows_affected() == 0 {
+        return Err("该记录状态已变更，请刷新后重试".into());
+    }
 
     Ok(())
 }

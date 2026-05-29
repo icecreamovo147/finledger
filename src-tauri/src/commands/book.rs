@@ -230,17 +230,19 @@ pub async fn delete_book(db: State<'_, DbState>, token: String, id: i64) -> Resu
     db.validate_token(&token).await?;
     let pool = db.get_pool().await?;
 
-    // Query all associated image paths before deletion
+    // Begin transaction first to prevent TOCTOU race between image query and delete
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+    // Query all associated image paths within the transaction
     let images: Vec<(String,)> = sqlx::query_as(
         "SELECT file_path FROM income_images WHERE record_id IN (SELECT id FROM income_records WHERE book_id = ?1)",
     )
     .bind(id)
-    .fetch_all(&pool)
+    .fetch_all(&mut *tx)
     .await
     .map_err(|e| e.to_string())?;
 
-    // Delete DB rows in a transaction first (FK cascade deletes records and images)
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    // Delete the book (FK cascade deletes records and images)
     let result = sqlx::query("DELETE FROM account_books WHERE id = ?1")
         .bind(id)
         .execute(&mut *tx)

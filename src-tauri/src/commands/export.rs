@@ -1,5 +1,5 @@
 use crate::db::DbState;
-use rust_xlsxwriter::{Format, Image, Workbook};
+use rust_xlsxwriter::{Format, FormatAlign, Image, Workbook};
 use tauri::State;
 
 type RecordRow = (
@@ -29,6 +29,10 @@ async fn write_export_sheet(
         .set_font_color(0xFFFFFF);
 
     let money_fmt = Format::new().set_num_format("#,##0.00");
+
+    let text_fmt = Format::new()
+        .set_text_wrap()
+        .set_align(FormatAlign::Top);
 
     let headers = [
         "日期",
@@ -85,10 +89,10 @@ async fn write_export_sheet(
 
         sheet.write_string(r, 0, date).map_err(|e| e.to_string())?;
         sheet
-            .write_string(r, 1, service_content)
+            .write_string_with_format(r, 1, service_content, &text_fmt)
             .map_err(|e| e.to_string())?;
         sheet
-            .write_string(r, 2, specification)
+            .write_string_with_format(r, 2, specification, &text_fmt)
             .map_err(|e| e.to_string())?;
         if let Some(qty) = quantity {
             sheet
@@ -105,8 +109,18 @@ async fn write_export_sheet(
             .write_number_with_format(r, 6, *amount as f64 / 100.0, &money_fmt)
             .map_err(|e| e.to_string())?;
         sheet
-            .write_string(r, 7, remark)
+            .write_string_with_format(r, 7, remark, &text_fmt)
             .map_err(|e| e.to_string())?;
+
+        let max_newlines = [
+            service_content.matches('\n').count(),
+            specification.matches('\n').count(),
+            remark.matches('\n').count(),
+        ]
+        .into_iter()
+        .max()
+        .unwrap_or(0);
+        let text_height = (max_newlines + 1) as f64 * 15.0;
 
         let images: Vec<(String,)> =
             sqlx::query_as("SELECT file_path FROM income_images WHERE record_id = ?1 ORDER BY id")
@@ -118,7 +132,7 @@ async fn write_export_sheet(
         if !images.is_empty() {
             let image_rows = ((images.len() + 2) / 3) as f64;
             sheet
-                .set_row_height(r, image_rows * 58.0)
+                .set_row_height(r, f64::max(text_height, image_rows * 58.0))
                 .map_err(|e| e.to_string())?;
 
             let mut embedded_count = 0;
@@ -146,6 +160,11 @@ async fn write_export_sheet(
                     .map_err(|e| e.to_string())?;
             }
         } else {
+            if max_newlines > 0 {
+                sheet
+                    .set_row_height(r, text_height)
+                    .map_err(|e| e.to_string())?;
+            }
             sheet.write_string(r, 8, "-").map_err(|e| e.to_string())?;
         }
 
