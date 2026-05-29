@@ -2,6 +2,7 @@ use crate::commands::backup::do_backup_with_type;
 use crate::commands::backup_settings::{apply_retention, load_run_state, save_run_state};
 use crate::db::DbState;
 use crate::models::{BackupRunState, BackupSettings};
+use chrono::{DateTime, Local, NaiveDate};
 use chrono::{Datelike, TimeZone};
 use std::path::Path;
 use tokio::sync::{watch, Mutex};
@@ -67,6 +68,17 @@ fn parse_time(time_of_day: &str) -> Option<(u32, u32)> {
     Some((hour, minute))
 }
 
+fn local_datetime_on_or_after(date: NaiveDate, hour: u32, minute: u32) -> Option<DateTime<Local>> {
+    let base = date.and_hms_opt(hour, minute, 0)?;
+    for offset in 0..180 {
+        let candidate = base + chrono::Duration::minutes(offset);
+        if let Some(dt) = chrono::Local.from_local_datetime(&candidate).earliest() {
+            return Some(dt);
+        }
+    }
+    None
+}
+
 fn already_ran_this_period(run_state: &BackupRunState, now: &chrono::DateTime<chrono::Local>, settings: &BackupSettings) -> bool {
     // Use last_auto_run_at for scheduling decisions, not last_run_at
     // This prevents manual backups from interfering with the auto schedule
@@ -75,7 +87,10 @@ fn already_ran_this_period(run_state: &BackupRunState, now: &chrono::DateTime<ch
         None => return false,
     };
     let last_dt = match chrono::NaiveDateTime::parse_from_str(last_auto_at, "%Y-%m-%d %H:%M:%S") {
-        Ok(dt) => chrono::Local.from_local_datetime(&dt).single().unwrap(),
+        Ok(dt) => match chrono::Local.from_local_datetime(&dt).earliest() {
+            Some(dt) => dt,
+            None => return false,
+        },
         Err(_) => return false,
     };
 
@@ -169,14 +184,13 @@ async fn run_scheduler(
                 }
             };
 
-            let today_target = now
-                .date_naive()
-                .and_hms_opt(hour, minute, 0)
-                .unwrap();
-            let today_target = chrono::Local
-                .from_local_datetime(&today_target)
-                .single()
-                .unwrap();
+            let today_target = match local_datetime_on_or_after(now.date_naive(), hour, minute) {
+                Some(dt) => dt,
+                None => {
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    continue;
+                }
+            };
 
             if now < today_target {
                 false
@@ -274,10 +288,11 @@ async fn run_scheduler(
                 "weekly" => {
                     let target_weekday = settings.day_of_week.unwrap_or(1);
                     let today_weekday = now.date_naive().weekday().num_days_from_monday() + 1;
-                    let today_target = now.date_naive().and_hms_opt(hour, minute, 0).unwrap();
-                    let today_target_dt = chrono::Local.from_local_datetime(&today_target).single().unwrap();
-                    if now < today_target_dt && today_weekday == target_weekday {
-                        Some(today_target_dt)
+                    let today_target_dt = local_datetime_on_or_after(now.date_naive(), hour, minute);
+                    if today_weekday == target_weekday
+                        && today_target_dt.as_ref().is_some_and(|dt| now < *dt)
+                    {
+                        today_target_dt
                     } else {
                         let days_until = if today_weekday < target_weekday {
                             (target_weekday - today_weekday) as i64
@@ -285,18 +300,18 @@ async fn run_scheduler(
                             (7 - today_weekday + target_weekday) as i64
                         };
                         let target_date = now.date_naive() + chrono::Duration::days(days_until);
-                        target_date.and_hms_opt(hour, minute, 0)
-                            .and_then(|t| chrono::Local.from_local_datetime(&t).single())
+                        local_datetime_on_or_after(target_date, hour, minute)
                     }
                 }
                 "monthly" => {
                     let target_day = settings.day_of_month.unwrap_or(1);
                     let today = now.date_naive();
-                    let today_target = today.and_hms_opt(hour, minute, 0).unwrap();
-                    let today_target_dt = chrono::Local.from_local_datetime(&today_target).single().unwrap();
+                    let today_target_dt = local_datetime_on_or_after(today, hour, minute);
                     let day_this_month = target_day.min(last_day_of_month(today.year(), today.month()));
-                    if now < today_target_dt && today.day() == day_this_month {
-                        Some(today_target_dt)
+                    if today.day() == day_this_month
+                        && today_target_dt.as_ref().is_some_and(|dt| now < *dt)
+                    {
+                        today_target_dt
                     } else {
                         let (y, m) = if today.month() == 12 {
                             (today.year() + 1, 1)
@@ -305,19 +320,16 @@ async fn run_scheduler(
                         };
                         let day = target_day.min(last_day_of_month(y, m));
                         chrono::NaiveDate::from_ymd_opt(y, m, day)
-                            .and_then(|d| d.and_hms_opt(hour, minute, 0))
-                            .and_then(|t| chrono::Local.from_local_datetime(&t).single())
+                            .and_then(|d| local_datetime_on_or_after(d, hour, minute))
                     }
                 }
                 _ => {
-                    let today_target = now.date_naive().and_hms_opt(hour, minute, 0).unwrap();
-                    let today_target_dt = chrono::Local.from_local_datetime(&today_target).single().unwrap();
-                    if now < today_target_dt {
-                        Some(today_target_dt)
+                    let today_target_dt = local_datetime_on_or_after(now.date_naive(), hour, minute);
+                    if today_target_dt.as_ref().is_some_and(|dt| now < *dt) {
+                        today_target_dt
                     } else {
                         let tomorrow = now.date_naive() + chrono::Duration::days(1);
-                        tomorrow.and_hms_opt(hour, minute, 0)
-                            .and_then(|t| chrono::Local.from_local_datetime(&t).single())
+                        local_datetime_on_or_after(tomorrow, hour, minute)
                     }
                 }
             };

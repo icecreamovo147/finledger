@@ -1,5 +1,24 @@
 <template>
   <div class="backup-management">
+    <div class="backup-overview-strip">
+      <div class="strip-item">
+        <span>备份总数</span>
+        <strong>{{ overview?.total_count ?? 0 }}</strong>
+      </div>
+      <div class="strip-item">
+        <span>自动备份</span>
+        <strong>{{ overview?.auto_count ?? 0 }}</strong>
+      </div>
+      <div class="strip-item">
+        <span>手动备份</span>
+        <strong>{{ overview?.manual_count ?? 0 }}</strong>
+      </div>
+      <div class="strip-item">
+        <span>总大小</span>
+        <strong>{{ formatSize(overview?.total_size_bytes ?? 0) }}</strong>
+      </div>
+    </div>
+
     <!-- 自动备份配置区 -->
     <div class="setting-section">
       <div class="section-header">
@@ -104,8 +123,6 @@
       </el-form>
     </div>
 
-    <el-divider />
-
     <!-- 备份概览区 -->
     <div class="setting-section">
       <div class="section-header section-header-row">
@@ -163,8 +180,6 @@
         </el-descriptions-item>
       </el-descriptions>
     </div>
-
-    <el-divider />
 
     <!-- 备份历史区 -->
     <div class="setting-section">
@@ -432,14 +447,60 @@ onMounted(loadOverview);
 </script>
 
 <style scoped lang="scss">
+.backup-management {
+  display: grid;
+  grid-template-columns: minmax(380px, 0.86fr) minmax(0, 1.14fr);
+  gap: 16px;
+}
+
+.backup-overview-strip {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.strip-item {
+  padding: 18px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+
+  span,
+  strong {
+    display: block;
+  }
+
+  span {
+    margin-bottom: 8px;
+    color: var(--text-tertiary);
+    font-size: 12px;
+  }
+
+  strong {
+    color: var(--text-heading);
+    font-size: 22px;
+  }
+}
+
 .setting-section {
-  margin-bottom: 20px;
+  padding: 22px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+
+  &:last-of-type {
+    grid-column: 1 / -1;
+  }
 
   .section-header {
     margin-bottom: 16px;
 
     h3 {
-      font-size: 16px;
+      color: var(--text-heading);
+      font-size: 18px;
       margin-bottom: 4px;
     }
 
@@ -458,7 +519,7 @@ onMounted(loadOverview);
 }
 
 .backup-form {
-  max-width: 600px;
+  max-width: none;
 }
 
 .dir-row {
@@ -474,12 +535,26 @@ onMounted(loadOverview);
 }
 
 .overview-desc {
-  max-width: 800px;
+  max-width: none;
 }
 
 .footer-hint {
-  margin-top: 24px;
+  grid-column: 1 / -1;
+  margin-top: 0;
   font-size: 13px;
   color: var(--text-tertiary);
+}
+
+@media (max-width: 1200px) {
+  .backup-management,
+  .backup-overview-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .backup-overview-strip,
+  .setting-section:last-of-type,
+  .footer-hint {
+    grid-column: auto;
+  }
 }
 </style>

@@ -1,32 +1,42 @@
 <template>
   <div class="user-management">
-    <el-table :data="users" border stripe v-loading="loading">
-      <el-table-column prop="id" label="ID" width="80" />
-      <el-table-column prop="username" label="用户名" />
-      <el-table-column prop="created_at" label="创建时间" width="180" />
-      <el-table-column label="操作" width="200">
-        <template #default="{ row }">
-          <el-button text type="primary" size="small" @click="openChangePwd(row)">
-            修改密码
-          </el-button>
-          <el-popconfirm
-            title="确定删除该用户？"
-            @confirm="handleDelete(row.id)"
-          >
-            <template #reference>
-              <el-button
-                text
-                type="danger"
-                size="small"
-                :disabled="row.id === authStore.user?.id"
-              >
-                删除
-              </el-button>
-            </template>
-          </el-popconfirm>
-        </template>
-      </el-table-column>
-    </el-table>
+    <div class="table-panel">
+      <div class="panel-heading">
+        <div>
+          <h3>成员与权限</h3>
+          <p>管理可访问 FinLedger 的本地用户账号。</p>
+        </div>
+        <el-tag type="info">{{ users.length }} 个用户</el-tag>
+      </div>
+
+      <el-table :data="users" stripe v-loading="loading">
+        <el-table-column prop="id" label="ID" width="80" />
+        <el-table-column prop="username" label="用户名" />
+        <el-table-column prop="created_at" label="创建时间" width="180" />
+        <el-table-column label="操作" width="200" align="right">
+          <template #default="{ row }">
+            <el-button text type="primary" size="small" @click="openChangePwd(row)">
+              修改密码
+            </el-button>
+            <el-popconfirm
+              title="确定删除该用户？"
+              @confirm="handleDelete(row.id)"
+            >
+              <template #reference>
+                <el-button
+                  text
+                  type="danger"
+                  size="small"
+                  :disabled="row.id === authStore.user?.id"
+                >
+                  删除
+                </el-button>
+              </template>
+            </el-popconfirm>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
 
     <!-- 新增用户弹窗 -->
     <el-dialog v-model="showCreateDialog" title="新增用户" width="400px">
@@ -228,4 +238,35 @@ async function handleChangePwd() {
 }
 </script>
 
-<style scoped lang="scss"></style>
+<style scoped lang="scss">
+.user-management {
+  height: 100%;
+}
+
+.table-panel {
+  padding: 22px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+}
+
+.panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+
+  h3 {
+    margin-bottom: 5px;
+    color: var(--text-heading);
+    font-size: 18px;
+  }
+
+  p {
+    color: var(--text-secondary);
+    font-size: 13px;
+  }
+}
+</style>

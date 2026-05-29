@@ -382,6 +382,18 @@ fn cleanup_dir(dir: &Path) {
     }
 }
 
+fn backup_type_file_part(backup_type: &str) -> String {
+    let safe: String = backup_type
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+        .collect();
+    if safe.is_empty() {
+        "manual".into()
+    } else {
+        safe
+    }
+}
+
 // ===== Public test-facing helpers (no Tauri State, no token) =====
 
 pub async fn do_backup(db: &DbState, target_dir: &str) -> Result<String, String> {
@@ -458,9 +470,10 @@ pub async fn do_backup_with_type(db: &DbState, target_dir: &str, backup_type: &s
         format!("写入 manifest 失败: {}", e)
     })?;
 
+    let backup_type_for_file = backup_type_file_part(backup_type);
     let filename = format!(
         "finledger_{}_backup_{}.flbackup",
-        backup_type,
+        backup_type_for_file,
         chrono::Local::now().format("%Y%m%d_%H%M%S")
     );
     let zip_tmp_path = tmp_dir.join(&filename);

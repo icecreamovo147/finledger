@@ -248,7 +248,7 @@ function handleThemeChange(mode: string) {
   --login-input-focus: #38bdf8;
   --login-badge-bg: #ecfeff;
   --login-badge-text: #0369a1;
-  --login-button-bg: linear-gradient(135deg, #2563eb, #0891b2);
+  --login-button-bg: var(--color-primary);
   --login-trust-dot: #cbd5e1;
   --login-theme-bg: rgba(255, 255, 255, 0.74);
   --login-theme-color: #0f172a;
@@ -286,7 +286,7 @@ function handleThemeChange(mode: string) {
     --login-input-focus: #38bdf8;
     --login-badge-bg: rgba(8, 145, 178, 0.16);
     --login-badge-text: #67e8f9;
-    --login-button-bg: linear-gradient(135deg, #2563eb, #0891b2);
+    --login-button-bg: var(--color-primary);
     --login-trust-dot: #cbd5e1;
     --login-theme-bg: rgba(15, 23, 42, 0.52);
     --login-theme-color: #e2e8f0;

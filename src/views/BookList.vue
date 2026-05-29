@@ -1,83 +1,100 @@
 <template>
-  <div class="book-list">
-    <div v-loading="loading" class="book-grid">
-      <el-empty v-if="!loading && books.length === 0" description="暂无账本，点击上方按钮创建" />
-      <div
-        v-for="book in books"
-        :key="book.id"
-        class="book-card"
-        @click="router.push(`/books/${book.id}`)"
-      >
-        <div class="book-card-header">
-          <h3>{{ book.name }}</h3>
-          <div class="book-actions" @click.stop>
-            <el-button text size="small" @click="openEdit(book)">编辑</el-button>
-            <el-popconfirm title="删除账本将同时删除所有记录，确定？" @confirm="handleDelete(book.id)">
-              <template #reference>
-                <el-button text type="danger" size="small">删除</el-button>
-              </template>
-            </el-popconfirm>
-          </div>
+    <div class="book-list">
+        <div v-loading="loading" class="book-grid">
+            <el-empty
+                v-if="!loading && books.length === 0"
+                description="暂无账本，点击上方按钮创建"
+            />
+            <div
+                v-for="book in books"
+                :key="book.id"
+                class="book-card"
+                @click="router.push(`/books/${book.id}`)"
+            >
+                <!-- <div class="book-orb">{{ book.name.slice(0, 1) }}</div> -->
+                <div class="book-card-header">
+                    <h3>{{ book.name }}</h3>
+                    <div class="book-actions" @click.stop>
+                        <el-button text size="small" @click="openEdit(book)"
+                            >编辑</el-button
+                        >
+                        <el-popconfirm
+                            title="删除账本将同时删除所有记录，确定？"
+                            @confirm="handleDelete(book.id)"
+                        >
+                            <template #reference>
+                                <el-button text type="danger" size="small"
+                                    >删除</el-button
+                                >
+                            </template>
+                        </el-popconfirm>
+                    </div>
+                </div>
+                <p v-if="book.remark" class="book-remark">{{ book.remark }}</p>
+                <div class="book-stats">
+                    <div class="stat">
+                        <span class="stat-value"
+                            >¥{{
+                                formatAmount(book.total_unsettled || 0)
+                            }}</span
+                        >
+                        <span class="stat-label">未结清</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value">{{
+                            book.record_count || 0
+                        }}</span>
+                        <span class="stat-label">记录数</span>
+                    </div>
+                </div>
+            </div>
         </div>
-        <p v-if="book.remark" class="book-remark">{{ book.remark }}</p>
-        <div class="book-stats">
-          <div class="stat">
-            <span class="stat-value">¥{{ formatAmount(book.total_unsettled || 0) }}</span>
-            <span class="stat-label">未结清</span>
-          </div>
-          <div class="stat">
-            <span class="stat-value">{{ book.record_count || 0 }}</span>
-            <span class="stat-label">记录数</span>
-          </div>
+
+        <div v-if="total > 0" class="pagination-wrapper">
+            <el-pagination
+                v-model:current-page="currentPage"
+                v-model:page-size="pageSize"
+                :page-sizes="[10, 20, 50, 100]"
+                :total="total"
+                layout="total, sizes, prev, pager, next, jumper"
+                background
+                @current-change="fetchBooks"
+                @size-change="handleSizeChange"
+            />
         </div>
-      </div>
-    </div>
 
-    <div v-if="total > 0" class="pagination-wrapper">
-      <el-pagination
-        v-model:current-page="currentPage"
-        v-model:page-size="pageSize"
-        :page-sizes="[10, 20, 50, 100]"
-        :total="total"
-        layout="total, sizes, prev, pager, next, jumper"
-        background
-        @current-change="fetchBooks"
-        @size-change="handleSizeChange"
-      />
+        <!-- 新增/编辑弹窗 -->
+        <el-dialog
+            v-model="showDialog"
+            :title="isEditing ? '编辑账本' : '新增账本'"
+            width="450px"
+        >
+            <el-form
+                ref="formRef"
+                :model="form"
+                :rules="rules"
+                label-position="top"
+            >
+                <el-form-item label="账本名称" prop="name">
+                    <el-input v-model="form.name" placeholder="例如：XX 公司" />
+                </el-form-item>
+                <el-form-item label="备注" prop="remark">
+                    <el-input
+                        v-model="form.remark"
+                        type="textarea"
+                        :rows="2"
+                        placeholder="可选备注信息"
+                    />
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="showDialog = false">取消</el-button>
+                <el-button type="primary" :loading="saving" @click="handleSave">
+                    确定
+                </el-button>
+            </template>
+        </el-dialog>
     </div>
-
-    <!-- 新增/编辑弹窗 -->
-    <el-dialog
-      v-model="showDialog"
-      :title="isEditing ? '编辑账本' : '新增账本'"
-      width="450px"
-    >
-      <el-form
-        ref="formRef"
-        :model="form"
-        :rules="rules"
-        label-position="top"
-      >
-        <el-form-item label="账本名称" prop="name">
-          <el-input v-model="form.name" placeholder="例如：XX 公司" />
-        </el-form-item>
-        <el-form-item label="备注" prop="remark">
-          <el-input
-            v-model="form.remark"
-            type="textarea"
-            :rows="2"
-            placeholder="可选备注信息"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="showDialog = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="handleSave">
-          确定
-        </el-button>
-      </template>
-    </el-dialog>
-  </div>
 </template>
 
 <script setup lang="ts">
@@ -105,184 +122,248 @@ const saving = ref(false);
 const formRef = ref<FormInstance>();
 const form = reactive({ name: "", remark: "" });
 const rules: FormRules = {
-  name: [{ required: true, message: "请输入账本名称", trigger: "blur" }],
+    name: [{ required: true, message: "请输入账本名称", trigger: "blur" }],
 };
 
 onMounted(() => {
-  pageHeaderStore.setActions([
-    {
-      key: "create-book",
-      label: "新增账本",
-      icon: Plus,
-      type: "primary",
-      onClick: openCreate,
-    },
-  ]);
-  fetchBooks();
+    pageHeaderStore.setActions([
+        {
+            key: "create-book",
+            label: "新增账本",
+            icon: Plus,
+            type: "primary",
+            onClick: openCreate,
+        },
+    ]);
+    fetchBooks();
 });
 
 onBeforeUnmount(() => {
-  pageHeaderStore.clearActions();
+    pageHeaderStore.clearActions();
 });
 
 async function fetchBooks() {
-  loading.value = true;
-  try {
-    const res = await safeInvoke<PaginatedBooks>("list_books", {
-      page: currentPage.value,
-      pageSize: pageSize.value,
-    });
-    books.value = res.books;
-    total.value = res.total;
-  } catch (e: any) {
-    ElMessage.error(e || "加载失败");
-  } finally {
-    loading.value = false;
-  }
+    loading.value = true;
+    try {
+        const res = await safeInvoke<PaginatedBooks>("list_books", {
+            page: currentPage.value,
+            pageSize: pageSize.value,
+        });
+        books.value = res.books;
+        total.value = res.total;
+    } catch (e: any) {
+        ElMessage.error(e || "加载失败");
+    } finally {
+        loading.value = false;
+    }
 }
 
 function handleSizeChange() {
-  currentPage.value = 1;
-  fetchBooks();
+    currentPage.value = 1;
+    fetchBooks();
 }
 
 function openCreate() {
-  isEditing.value = false;
-  editingId.value = null;
-  form.name = "";
-  form.remark = "";
-  showDialog.value = true;
+    isEditing.value = false;
+    editingId.value = null;
+    form.name = "";
+    form.remark = "";
+    showDialog.value = true;
 }
 
 function openEdit(book: AccountBook) {
-  isEditing.value = true;
-  editingId.value = book.id;
-  form.name = book.name;
-  form.remark = book.remark;
-  showDialog.value = true;
+    isEditing.value = true;
+    editingId.value = book.id;
+    form.name = book.name;
+    form.remark = book.remark;
+    showDialog.value = true;
 }
 
 async function handleSave() {
-  if (!formRef.value) return;
-  const valid = await formRef.value.validate().catch(() => false);
-  if (!valid) return;
+    if (!formRef.value) return;
+    const valid = await formRef.value.validate().catch(() => false);
+    if (!valid) return;
 
-  saving.value = true;
-  try {
-    if (isEditing.value && editingId.value) {
-      await safeInvoke("update_book", {
-        id: editingId.value,
-        name: form.name,
-        remark: form.remark,
-      });
-      ElMessage.success("账本已更新");
-    } else {
-      await safeInvoke("create_book", { name: form.name, remark: form.remark });
-      ElMessage.success("账本已创建");
+    saving.value = true;
+    try {
+        if (isEditing.value && editingId.value) {
+            await safeInvoke("update_book", {
+                id: editingId.value,
+                name: form.name,
+                remark: form.remark,
+            });
+            ElMessage.success("账本已更新");
+        } else {
+            await safeInvoke("create_book", {
+                name: form.name,
+                remark: form.remark,
+            });
+            ElMessage.success("账本已创建");
+        }
+        showDialog.value = false;
+        fetchBooks();
+    } catch (e: any) {
+        ElMessage.error(e || "操作失败");
+    } finally {
+        saving.value = false;
     }
-    showDialog.value = false;
-    fetchBooks();
-  } catch (e: any) {
-    ElMessage.error(e || "操作失败");
-  } finally {
-    saving.value = false;
-  }
 }
 
 async function handleDelete(id: number) {
-  try {
-    await safeInvoke("delete_book", { id });
-    ElMessage.success("账本已删除");
-    fetchBooks();
-  } catch (e: any) {
-    ElMessage.error(e || "删除失败");
-  }
+    try {
+        await safeInvoke("delete_book", { id });
+        ElMessage.success("账本已删除");
+        fetchBooks();
+    } catch (e: any) {
+        ElMessage.error(e || "删除失败");
+    }
 }
 
 function formatAmount(val: number): string {
-  return (val / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return (val / 100).toLocaleString("zh-CN", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    });
 }
 </script>
 
 <style scoped lang="scss">
 .book-list {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
 }
 
 .book-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 20px;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  align-content: start;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+    flex: 1;
+    min-height: 0;
+    padding: 2px;
+    overflow-y: auto;
+    align-content: start;
 
-  .el-empty {
-    grid-column: 1 / -1;
-    justify-self: center;
-  }
+    .el-empty {
+        grid-column: 1 / -1;
+        justify-self: center;
+    }
 }
 
 .pagination-wrapper {
-  display: flex;
-  justify-content: center;
-  margin-top: 24px;
-  flex-shrink: 0;
+    display: flex;
+    justify-content: center;
+    padding: 18px 0 2px;
+    flex-shrink: 0;
 }
 
 .book-card {
-  background: var(--card-bg);
-  border-radius: 10px;
-  padding: 24px;
-  cursor: pointer;
-  border: 1px solid var(--border-color);
-  transition: box-shadow 180ms ease, transform 180ms ease, border-color 180ms ease;
+    position: relative;
+    overflow: hidden;
+    background: var(--card-bg);
+    border-radius: 14px;
+    padding: 24px;
+    cursor: pointer;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--card-shadow);
+    transition:
+        box-shadow 180ms ease,
+        transform 180ms ease,
+        border-color 180ms ease;
 
-  &:hover {
-    border-color: var(--border-hover);
-    box-shadow: var(--card-shadow-hover);
-    transform: translateY(-2px);
-  }
-
-  .book-card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 8px;
-
-    h3 { font-size: 17px; color: var(--text-heading); }
-
-    .book-actions {
-      opacity: 0.72;
-      transition: opacity 140ms ease;
+    &::after {
+        position: absolute;
+        inset: auto -40px -62px auto;
+        width: 150px;
+        height: 150px;
+        content: "";
+        border-radius: 50%;
+        background: radial-gradient(
+            circle,
+            var(--color-primary-soft),
+            transparent 68%
+        );
+        pointer-events: none;
     }
-  }
 
-  &:hover .book-actions { opacity: 1; }
-
-  .book-remark {
-    color: var(--text-tertiary);
-    font-size: 13px;
-    margin-bottom: 16px;
-    min-height: 20px;
-  }
-
-  .book-stats {
-    display: flex;
-    gap: 32px;
-    padding-top: 16px;
-    border-top: 1px solid var(--border-color);
-
-    .stat {
-      display: flex;
-      flex-direction: column;
-
-      .stat-value { font-size: 18px; font-weight: 600; color: var(--text-heading); }
-      .stat-label { font-size: 12px; color: var(--text-tertiary); margin-top: 2px; }
+    &:hover {
+        border-color: var(--color-primary);
+        box-shadow:
+            var(--card-shadow-hover),
+            inset 0 0 0 1px var(--color-primary);
     }
-  }
+
+    .book-orb {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 42px;
+        height: 42px;
+        margin-bottom: 18px;
+        color: var(--color-primary);
+        font-size: 18px;
+        font-weight: 800;
+        border-radius: 12px;
+        background: var(--color-primary-soft);
+    }
+
+    .book-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+
+        h3 {
+            min-width: 0;
+            color: var(--text-heading);
+            font-size: 18px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .book-actions {
+            opacity: 0.72;
+            transition: opacity 140ms ease;
+        }
+    }
+
+    &:hover .book-actions {
+        opacity: 1;
+    }
+
+    .book-remark {
+        color: var(--text-tertiary);
+        font-size: 13px;
+        margin-bottom: 16px;
+        min-height: 20px;
+    }
+
+    .book-stats {
+        display: flex;
+        gap: 16px;
+        padding-top: 16px;
+        border-top: 1px solid var(--border-color);
+
+        .stat {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            padding: 12px;
+            border-radius: 10px;
+            background: var(--card-bg-subtle);
+
+            .stat-value {
+                font-size: 18px;
+                font-weight: 600;
+                color: var(--text-heading);
+            }
+            .stat-label {
+                font-size: 12px;
+                color: var(--text-tertiary);
+                margin-top: 2px;
+            }
+        }
+    }
 }
 </style>

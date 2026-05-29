@@ -8,9 +8,6 @@
       <el-menu
         :default-active="activeMenu"
         router
-        background-color="var(--bg-sidebar)"
-        text-color="var(--text-sidebar)"
-        active-text-color="var(--color-primary)"
       >
         <el-menu-item index="/dashboard">
           <el-icon><DataAnalysis /></el-icon>
@@ -36,8 +33,8 @@
       <div class="sidebar-footer">
         <span>{{ authStore.user?.username }}</span>
         <div class="footer-actions">
-          <el-dropdown trigger="click" @command="handleThemeChange">
-            <el-button text size="small">
+          <el-dropdown trigger="hover" @command="handleThemeChange">
+            <el-button text size="small" @click.stop="handleThemeCycle">
               <el-icon :size="16">
                 <Sunny v-if="themeStore.mode === 'light'" />
                 <Moon v-else-if="themeStore.mode === 'dark'" />
@@ -165,6 +162,10 @@ function handleThemeChange(mode: string) {
   themeStore.setMode(mode as "light" | "dark" | "auto");
 }
 
+function handleThemeCycle() {
+  themeStore.cycleMode();
+}
+
 async function handleLogout() {
   await authStore.logout();
   router.push("/login");
@@ -176,62 +177,87 @@ async function handleLogout() {
   display: flex;
   height: 100vh;
   overflow: hidden;
+  background:
+    var(--page-glow),
+    linear-gradient(135deg, var(--bg-secondary), var(--bg-primary));
 }
 
 .sidebar {
   width: var(--sidebar-width);
-  background: var(--bg-sidebar);
+  background:
+    var(--sidebar-gradient),
+    var(--bg-sidebar);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  border-right: 1px solid var(--border-color);
+  border-right: 1px solid var(--sidebar-border);
+  box-shadow: var(--sidebar-shadow);
 
   .sidebar-header {
-    height: 60px;
+    height: 72px;
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 10px;
-    border-bottom: 1px solid var(--border-color);
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 0 22px;
+    border-bottom: 1px solid var(--sidebar-border);
 
     .app-logo {
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
       object-fit: cover;
-      box-shadow: 0 6px 14px rgba(64, 158, 255, 0.22);
+      box-shadow: 0 10px 26px rgba(37, 99, 235, 0.34);
     }
 
     h1 {
-      color: var(--text-heading);
-      font-size: 18px;
-      font-weight: 600;
+      color: var(--sidebar-brand-text);
+      font-size: 19px;
+      font-weight: 750;
+      letter-spacing: 0;
     }
   }
 
   .el-menu {
     flex: 1;
     border-right: none;
+    padding: 14px 12px;
+    background: transparent !important;
 
     :deep(.el-menu-item) {
+      height: 48px;
+      margin-bottom: 6px;
+      border-radius: 10px;
+      color: var(--text-sidebar);
+      font-size: 15px;
+      transition: background-color 180ms ease, color 180ms ease, transform 180ms ease;
+
       &:hover {
-        background-color: var(--hover-bg);
+        color: var(--sidebar-hover-text);
+        background-color: var(--sidebar-hover-bg);
+        transform: translateX(2px);
       }
 
       &.is-active {
-        background-color: var(--hover-bg);
+        color: var(--sidebar-active-text);
+        background: var(--sidebar-active-bg);
+        box-shadow: var(--sidebar-active-shadow);
+      }
+
+      .el-icon {
+        color: inherit;
       }
     }
   }
 
   .sidebar-footer {
-    padding: 12px 16px;
-    border-top: 1px solid var(--border-color);
+    padding: 16px;
+    border-top: 1px solid var(--sidebar-border);
     display: flex;
     align-items: center;
     justify-content: space-between;
     color: var(--text-sidebar);
-    font-size: 13px;
+    font-size: 14px;
 
     .footer-actions {
       display: flex;
@@ -251,7 +277,7 @@ async function handleLogout() {
   flex: 1;
   min-height: 0;
   height: 100%;
-  background: var(--bg-secondary);
+  background: transparent;
   overflow: hidden;
 }
 
@@ -261,9 +287,14 @@ async function handleLogout() {
   justify-content: space-between;
   gap: 20px;
   flex-shrink: 0;
-  padding: 18px 24px 14px;
-  background: var(--bg-primary);
+  margin: 18px 18px 0;
+  padding: 18px 22px;
+  background: var(--bg-elevated);
   border-bottom: 1px solid var(--border-color);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(16px);
 
   .header-title {
     min-width: 0;
@@ -271,7 +302,7 @@ async function handleLogout() {
 
   :deep(.el-breadcrumb) {
     margin-bottom: 8px;
-    font-size: 13px;
+    font-size: 14px;
   }
 
   :deep(.el-breadcrumb__inner) {
@@ -295,8 +326,8 @@ async function handleLogout() {
   h2 {
     margin: 0;
     color: var(--text-heading);
-    font-size: 20px;
-    font-weight: 650;
+    font-size: 22px;
+    font-weight: 760;
     line-height: 1.35;
   }
 }
@@ -311,7 +342,7 @@ async function handleLogout() {
 .content-body {
   flex: 1;
   min-height: 0;
-  padding: 24px;
+  padding: 18px;
   overflow-y: auto;
   overflow-x: hidden;
 }

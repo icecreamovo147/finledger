@@ -905,11 +905,22 @@ async function viewDetail(record: IncomeRecord) {
 
 <style scoped lang="scss">
 .book-detail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+
   .page-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 16px;
+    gap: 16px;
+    margin-bottom: 14px;
+    padding: 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    background: var(--card-bg);
+    box-shadow: var(--card-shadow);
 
     .header-left {
       display: flex;
@@ -922,6 +933,7 @@ async function viewDetail(record: IncomeRecord) {
         width: 34px;
         height: 34px;
         border-radius: 8px;
+        background: var(--card-bg-subtle);
       }
 
       .current-book-name {
@@ -939,23 +951,37 @@ async function viewDetail(record: IncomeRecord) {
     .header-right {
       display: flex;
       gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
   }
 
   .filter-bar {
     display: flex;
     gap: 12px;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
+    padding: 16px;
     flex-wrap: wrap;
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    background: var(--card-bg);
+    box-shadow: var(--card-shadow);
   }
 
   .table-container {
     display: flex;
     flex-direction: column;
-    height: calc(100vh - 150px);
+    flex: 1;
+    min-height: 0;
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    background: var(--card-bg);
+    box-shadow: var(--card-shadow);
 
     .el-table {
       flex: 1;
+      min-height: 0;
     }
   }
 
