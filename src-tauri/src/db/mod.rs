@@ -387,11 +387,17 @@ impl DbState {
             let column_names: HashSet<String> = columns.into_iter().map(|(name,)| name).collect();
             let has_service_fields =
                 column_names.contains("service_content") && column_names.contains("specification");
-            let has_old_fields = column_names.contains("category")
-                || column_names.contains("description")
-                || column_names.contains("size_info");
 
-            if !has_service_fields || has_old_fields {
+            // Only rebuild if the new service fields don't exist yet.
+            // Old columns (category, description, size_info) are harmless
+            // leftovers — rebuilding when they're present would overwrite
+            // existing service_content with description data.
+            if !has_service_fields {
+                // Prevent other connections from accessing the database while
+                // we rebuild the table with foreign_keys disabled.
+                let _maintenance_guard = self.maintenance_guard()
+                    .map_err(|e| sqlx::Error::Protocol(e))?;
+
                 let mut conn = pool.acquire().await?;
                 sqlx::query("PRAGMA foreign_keys = OFF")
                     .execute(&mut *conn)
