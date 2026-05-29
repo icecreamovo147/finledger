@@ -9,10 +9,16 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder};
+use tauri::tray::TrayIconBuilder;
+
+#[cfg(not(target_os = "macos"))]
+use tauri::tray::{MouseButton, MouseButtonState};
 use tauri::AppHandle;
 use tauri::Manager;
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult};
+#[cfg(not(target_os = "macos"))]
+use tauri_plugin_dialog::{
+    DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult,
+};
 
 pub struct LoginAttempts(pub Mutex<HashMap<String, (u32, chrono::DateTime<chrono::Utc>)>>);
 const TRAY_MENU_OPEN_ID: &str = "tray_open_main";
@@ -128,17 +134,17 @@ pub fn run() {
                 .icon(icon)
                 .tooltip("FinLedger")
                 .on_menu_event(handle_tray_menu_event)
-                .on_tray_icon_event(|tray_icon, event| {
+                .on_tray_icon_event(|_tray_icon, _event| {
                     #[cfg(not(target_os = "macos"))]
                     {
                         if let tauri::tray::TrayIconEvent::Click {
                             button,
                             button_state,
                             ..
-                        } = event
+                        } = _event
                         {
                             if button == MouseButton::Left && button_state == MouseButtonState::Up {
-                                show_main_window(&tray_icon.app_handle());
+                                show_main_window(&_tray_icon.app_handle());
                             }
                         }
                     }
@@ -227,6 +233,18 @@ pub fn run() {
             commands::backup_settings::delete_backup_file,
             exit_app,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen {
+                has_visible_windows,
+                ..
+            } = event
+            {
+                if !has_visible_windows {
+                    show_main_window(app_handle);
+                }
+            }
+        });
 }
