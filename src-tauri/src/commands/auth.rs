@@ -63,7 +63,11 @@ pub async fn do_create_user(db: &DbState, username: &str, password: &str) -> Res
     Ok(())
 }
 
-pub async fn do_delete_user(db: &DbState, user_id: i64, current_user_id: i64) -> Result<(), String> {
+pub async fn do_delete_user(
+    db: &DbState,
+    user_id: i64,
+    current_user_id: i64,
+) -> Result<(), String> {
     if user_id == current_user_id {
         return Err("不能删除当前登录的用户".into());
     }
@@ -89,12 +93,11 @@ pub async fn do_change_password(
         return Err("新密码不能为空".into());
     }
     let pool = db.get_pool().await?;
-    let row: Option<(String,)> =
-        sqlx::query_as("SELECT password_hash FROM users WHERE id = ?1")
-            .bind(user_id)
-            .fetch_optional(&pool)
-            .await
-            .map_err(|e| e.to_string())?;
+    let row: Option<(String,)> = sqlx::query_as("SELECT password_hash FROM users WHERE id = ?1")
+        .bind(user_id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
     let (hash,) = row.ok_or("用户不存在")?;
     if !bcrypt::verify(old_password.as_bytes(), &hash).unwrap_or(false) {
         return Err("旧密码错误".into());
@@ -206,9 +209,7 @@ pub async fn login(
 
 fn record_failed_attempt(attempts: &crate::LoginAttempts, username: &str) {
     let mut map = attempts.0.lock().unwrap();
-    let entry = map
-        .entry(username.to_string())
-        .or_insert((0, Utc::now()));
+    let entry = map.entry(username.to_string()).or_insert((0, Utc::now()));
     entry.0 += 1;
     if entry.0 >= 5 {
         entry.1 = Utc::now() + Duration::minutes(15);
@@ -217,6 +218,7 @@ fn record_failed_attempt(attempts: &crate::LoginAttempts, username: &str) {
 
 #[tauri::command]
 pub async fn logout(db: State<'_, DbState>, token: String) -> Result<(), String> {
+    db.validate_token(&token).await?;
     let pool = db.get_pool().await?;
     sqlx::query("DELETE FROM sessions WHERE token = ?1")
         .bind(&token)
@@ -294,6 +296,38 @@ pub async fn change_password(
     old_password: String,
     new_password: String,
 ) -> Result<(), String> {
-    db.validate_token(&token).await?;
+    let current_user_id = db.validate_token(&token).await?;
+    if user_id != current_user_id {
+        return Err("只能修改自己的密码".into());
+    }
     do_change_password(&db, user_id, &old_password, &new_password).await
+}
+
+#[tauri::command]
+pub async fn admin_reset_password(
+    db: State<'_, DbState>,
+    token: String,
+    target_user_id: i64,
+    new_password: String,
+) -> Result<(), String> {
+    let current_user_id = db.validate_token(&token).await?;
+    // Only the initial admin (user id=1) may reset other users' passwords.
+    if current_user_id != 1 {
+        return Err("仅管理员可重置他人密码".into());
+    }
+    if new_password.trim().is_empty() {
+        return Err("新密码不能为空".into());
+    }
+    let new_hash = bcrypt::hash(new_password.as_bytes(), 12).map_err(|e| e.to_string())?;
+    let pool = db.get_pool().await?;
+    let result = sqlx::query("UPDATE users SET password_hash = ?1 WHERE id = ?2")
+        .bind(&new_hash)
+        .bind(target_user_id)
+        .execute(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    if result.rows_affected() == 0 {
+        return Err("用户不存在".into());
+    }
+    Ok(())
 }
