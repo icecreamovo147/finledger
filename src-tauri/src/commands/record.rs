@@ -1,5 +1,6 @@
 use crate::db::DbState;
 use crate::models::{IncomeImage, IncomeRecord, PaginatedRecords};
+use crate::utils::escape_like;
 use base64::Engine;
 use std::path::{Path, PathBuf};
 use tauri::State;
@@ -136,12 +137,6 @@ pub fn resolve_image_path(db: &DbState, stored_path: &str) -> Result<PathBuf, St
 
     // File doesn't exist — component check already prevents .. traversal
     Ok(resolved)
-}
-
-// ===== Internal helpers (take &DbState, testable without Tauri) =====
-
-fn escape_like(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
 fn bytes_to_data_url(bytes: &[u8], original_name: &str) -> String {

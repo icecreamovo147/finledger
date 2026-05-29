@@ -1,11 +1,8 @@
 use crate::commands::record::resolve_image_path;
 use crate::db::DbState;
 use crate::models::{AccountBook, PaginatedBooks};
+use crate::utils::escape_like;
 use tauri::State;
-
-fn escape_like(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
-}
 
 #[tauri::command]
 pub async fn create_book(

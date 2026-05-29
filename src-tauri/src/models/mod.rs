@@ -25,12 +25,6 @@ pub struct AccountBook {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ImageUpload {
-    pub file_bytes: Vec<u8>,
-    pub file_name: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IncomeImage {
     pub id: i64,
     pub record_id: i64,
@@ -44,12 +38,11 @@ pub struct IncomeRecord {
     pub id: i64,
     pub book_id: i64,
     pub date: String,
-    pub category: String,
-    pub description: String,
+    pub service_content: String,
+    pub specification: String,
     pub quantity: Option<i64>,
     pub unit: String,
     pub unit_price: Option<i64>,
-    pub size_info: String,
     pub total_amount: i64,
     pub settlement_status: String,
     pub payment_date: Option<String>,
@@ -81,12 +74,6 @@ pub struct MonthlySettlement {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CategoryShare {
-    pub category: String,
-    pub amount: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaginatedBooks {
     pub total: i64,
     pub books: Vec<AccountBook>,
@@ -109,7 +96,6 @@ pub struct DashboardStats {
     pub book_ranking: Vec<BookRanking>,
     pub income_trend: Vec<MonthlyIncome>,
     pub settlement_trend: Vec<MonthlySettlement>,
-    pub category_share: Vec<CategoryShare>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

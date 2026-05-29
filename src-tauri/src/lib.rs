@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod db;
 pub mod models;
+pub mod utils;
 
 use commands::backup_scheduler::BackupSchedulerState;
 use db::{sqlite_options, DbState};
@@ -89,6 +90,9 @@ pub fn run() {
                     .expect("failed to connect to database")
             });
 
+            // Clean up stale staging sessions (older than 24h)
+            commands::record::cleanup_stale_staging_sessions(&app_dir);
+
             // Clean up orphan temp files from previous failed uploads
             let images_dir = app_dir.join("images");
             if let Ok(entries) = std::fs::read_dir(&images_dir) {
@@ -96,6 +100,17 @@ pub fn run() {
                     let name = entry.file_name();
                     if name.to_string_lossy().starts_with(".tmp-") {
                         std::fs::remove_file(entry.path()).ok();
+                    }
+                }
+            }
+
+            // Clean up stale restore-tmp directories from failed restores
+            if let Ok(entries) = std::fs::read_dir(&app_dir) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    let name_str = name.to_string_lossy();
+                    if name_str.starts_with(".restore-tmp-") {
+                        std::fs::remove_dir_all(entry.path()).ok();
                     }
                 }
             }
@@ -120,9 +135,11 @@ pub fn run() {
 
             let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))
                 .expect("failed to load tray icon");
-            let open_item = MenuItem::with_id(app, TRAY_MENU_OPEN_ID, "打开主界面", true, None::<&str>)?;
+            let open_item =
+                MenuItem::with_id(app, TRAY_MENU_OPEN_ID, "打开主界面", true, None::<&str>)?;
             #[cfg(target_os = "macos")]
-            let hide_item = MenuItem::with_id(app, TRAY_MENU_HIDE_ID, "隐藏主窗口", true, None::<&str>)?;
+            let hide_item =
+                MenuItem::with_id(app, TRAY_MENU_HIDE_ID, "隐藏主窗口", true, None::<&str>)?;
             let exit_item = MenuItem::with_id(app, TRAY_MENU_EXIT_ID, "退出", true, None::<&str>)?;
             #[cfg(target_os = "macos")]
             let tray_menu = Menu::with_items(app, &[&open_item, &hide_item, &exit_item])?;
@@ -177,7 +194,8 @@ pub fn run() {
                         ))
                         .parent(&window)
                         .show_with_result(move |result| match result {
-                            MessageDialogResult::Custom(choice) if choice == "最小化到托盘" => {
+                            MessageDialogResult::Custom(choice) if choice == "最小化到托盘" =>
+                            {
                                 let _ = window.set_skip_taskbar(true);
                                 let _ = window.hide();
                             }
@@ -201,23 +219,27 @@ pub fn run() {
             commands::auth::create_user,
             commands::auth::delete_user,
             commands::auth::change_password,
+            commands::auth::admin_reset_password,
             commands::book::create_book,
             commands::book::list_books,
             commands::book::get_book,
             commands::book::update_book,
             commands::book::delete_book,
             commands::record::create_record,
-            commands::record::create_record_with_images,
             commands::record::list_records,
             commands::record::get_record,
             commands::record::update_record,
-            commands::record::update_record_with_images,
             commands::record::delete_record,
-            commands::record::upload_image,
             commands::record::delete_image,
             commands::record::settle_record,
             commands::record::unsettle_record,
             commands::record::read_image_base64,
+            commands::record::stage_image_from_path,
+            commands::record::stage_image_bytes,
+            commands::record::delete_staged_image,
+            commands::record::cancel_image_staging_session,
+            commands::record::create_record_with_staged_images,
+            commands::record::update_record_with_staged_images,
             commands::record::check_attachment_consistency,
             commands::record::cleanup_orphan_images,
             commands::export::export_excel,
