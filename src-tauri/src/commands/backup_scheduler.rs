@@ -79,7 +79,11 @@ fn local_datetime_on_or_after(date: NaiveDate, hour: u32, minute: u32) -> Option
     None
 }
 
-fn already_ran_this_period(run_state: &BackupRunState, now: &chrono::DateTime<chrono::Local>, settings: &BackupSettings) -> bool {
+fn already_ran_this_period(
+    run_state: &BackupRunState,
+    now: &chrono::DateTime<chrono::Local>,
+    settings: &BackupSettings,
+) -> bool {
     // Use last_auto_run_at for scheduling decisions, not last_run_at
     // This prevents manual backups from interfering with the auto schedule
     let last_auto_at = match &run_state.last_auto_run_at {
@@ -96,23 +100,32 @@ fn already_ran_this_period(run_state: &BackupRunState, now: &chrono::DateTime<ch
 
     match settings.frequency.as_str() {
         "interval_minutes" | "interval_hours" => {
-            let interval = chrono::Duration::minutes(settings.interval_minutes.unwrap_or(60) as i64);
+            let interval =
+                chrono::Duration::minutes(settings.interval_minutes.unwrap_or(60) as i64);
             *now - last_dt < interval
         }
         "weekly" => {
             let target_weekday = settings.day_of_week.unwrap_or(1);
             let now_weekday = now.date_naive().weekday().num_days_from_monday() + 1;
             if now_weekday >= target_weekday {
-                last_dt.date_naive() >= now.date_naive() - chrono::Duration::days((now_weekday - target_weekday) as i64)
+                last_dt.date_naive()
+                    >= now.date_naive()
+                        - chrono::Duration::days((now_weekday - target_weekday) as i64)
             } else {
-                last_dt.date_naive() >= now.date_naive() - chrono::Duration::days((7 - target_weekday + now_weekday) as i64)
+                last_dt.date_naive()
+                    >= now.date_naive()
+                        - chrono::Duration::days((7 - target_weekday + now_weekday) as i64)
             }
         }
         "monthly" => {
             let target_day = settings.day_of_month.unwrap_or(1);
             let today = now.date_naive();
             let this_month_target = if today.day() >= target_day {
-                chrono::NaiveDate::from_ymd_opt(today.year(), today.month(), target_day.min(last_day_of_month(today.year(), today.month())))
+                chrono::NaiveDate::from_ymd_opt(
+                    today.year(),
+                    today.month(),
+                    target_day.min(last_day_of_month(today.year(), today.month())),
+                )
             } else {
                 let (y, m) = if today.month() == 1 {
                     (today.year() - 1, 12)
@@ -168,7 +181,10 @@ async fn run_scheduler(
 
         let now = chrono::Local::now();
 
-        let is_interval = matches!(settings.frequency.as_str(), "interval_minutes" | "interval_hours");
+        let is_interval = matches!(
+            settings.frequency.as_str(),
+            "interval_minutes" | "interval_hours"
+        );
 
         let should_run = if is_interval {
             // Interval-based: check if enough time has passed since last run
@@ -203,7 +219,11 @@ async fn run_scheduler(
                     }
                     "monthly" => {
                         let target_day = settings.day_of_month.unwrap_or(1);
-                        now.date_naive().day() == target_day.min(last_day_of_month(now.date_naive().year(), now.date_naive().month()))
+                        now.date_naive().day()
+                            == target_day.min(last_day_of_month(
+                                now.date_naive().year(),
+                                now.date_naive().month(),
+                            ))
                     }
                     _ => true,
                 };
@@ -223,9 +243,7 @@ async fn run_scheduler(
             let guard = db.maintenance_guard();
             match guard {
                 Ok(guard) => {
-                    let now_str = chrono::Local::now()
-                        .format("%Y-%m-%d %H:%M:%S")
-                        .to_string();
+                    let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
                     let mut run_state = load_run_state(&db.app_data_dir);
                     run_state.last_run_at = Some(now_str.clone());
                     run_state.last_auto_run_at = Some(now_str);
@@ -237,10 +255,9 @@ async fn run_scheduler(
                             run_state.last_message = Some("自动备份成功".into());
                             run_state.last_backup_path = Some(path);
 
-                            let backups =
-                                crate::commands::backup_settings::scan_backup_dir_public(
-                                    Path::new(target_dir),
-                                );
+                            let backups = crate::commands::backup_settings::scan_backup_dir_public(
+                                Path::new(target_dir),
+                            );
                             let retention_result = apply_retention(&settings, &backups);
                             if !retention_result.warnings.is_empty() {
                                 run_state.last_message = Some(format!(
@@ -259,15 +276,15 @@ async fn run_scheduler(
                     drop(guard);
                 }
                 Err(_) => {
+                    let now_str =
+                        chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
                     let mut run_state = load_run_state(&db.app_data_dir);
-                    run_state.last_run_at = Some(
-                        chrono::Local::now()
-                            .format("%Y-%m-%d %H:%M:%S")
-                            .to_string(),
-                    );
+                    run_state.last_run_at = Some(now_str.clone());
+                    // Update last_auto_run_at so the skipped backup doesn't
+                    // block the next scheduled run for this period.
+                    run_state.last_auto_run_at = Some(now_str);
                     run_state.last_status = Some("skipped".into());
-                    run_state.last_message =
-                        Some("系统维护中，跳过本次自动备份".into());
+                    run_state.last_message = Some("系统维护中，跳过本次自动备份".into());
                     let _ = save_run_state(&db.app_data_dir, &run_state);
                 }
             }
@@ -288,7 +305,8 @@ async fn run_scheduler(
                 "weekly" => {
                     let target_weekday = settings.day_of_week.unwrap_or(1);
                     let today_weekday = now.date_naive().weekday().num_days_from_monday() + 1;
-                    let today_target_dt = local_datetime_on_or_after(now.date_naive(), hour, minute);
+                    let today_target_dt =
+                        local_datetime_on_or_after(now.date_naive(), hour, minute);
                     if today_weekday == target_weekday
                         && today_target_dt.as_ref().is_some_and(|dt| now < *dt)
                     {
@@ -307,7 +325,8 @@ async fn run_scheduler(
                     let target_day = settings.day_of_month.unwrap_or(1);
                     let today = now.date_naive();
                     let today_target_dt = local_datetime_on_or_after(today, hour, minute);
-                    let day_this_month = target_day.min(last_day_of_month(today.year(), today.month()));
+                    let day_this_month =
+                        target_day.min(last_day_of_month(today.year(), today.month()));
                     if today.day() == day_this_month
                         && today_target_dt.as_ref().is_some_and(|dt| now < *dt)
                     {
@@ -324,7 +343,8 @@ async fn run_scheduler(
                     }
                 }
                 _ => {
-                    let today_target_dt = local_datetime_on_or_after(now.date_naive(), hour, minute);
+                    let today_target_dt =
+                        local_datetime_on_or_after(now.date_naive(), hour, minute);
                     if today_target_dt.as_ref().is_some_and(|dt| now < *dt) {
                         today_target_dt
                     } else {
@@ -334,7 +354,11 @@ async fn run_scheduler(
                 }
             };
             let duration = next_target
-                .map(|t| (t - now).to_std().unwrap_or(std::time::Duration::from_secs(60)))
+                .map(|t| {
+                    (t - now)
+                        .to_std()
+                        .unwrap_or(std::time::Duration::from_secs(60))
+                })
                 .unwrap_or(std::time::Duration::from_secs(60));
             duration.min(std::time::Duration::from_secs(300))
         };

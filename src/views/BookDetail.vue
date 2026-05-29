@@ -39,20 +39,6 @@
     <!-- Filter Bar -->
     <div class="filter-bar">
       <el-select
-        v-model="filters.category"
-        placeholder="收入类别"
-        clearable
-        style="width: 140px"
-        @change="handleFilterChange"
-      >
-        <el-option
-          v-for="(label, key) in IncomeCategoryLabels"
-          :key="key"
-          :label="label"
-          :value="key"
-        />
-      </el-select>
-      <el-select
         v-model="filters.settlement_status"
         placeholder="结算状态"
         clearable
@@ -74,7 +60,7 @@
       />
       <el-input
         v-model="filters.keyword"
-        placeholder="搜索描述/备注"
+        placeholder="搜索服务项目/备注"
         clearable
         style="width: 200px"
         @change="handleFilterChange"
@@ -94,12 +80,8 @@
     >
       <el-table-column type="selection" width="50" />
       <el-table-column prop="date" label="日期" width="110" sortable />
-      <el-table-column prop="category" label="类别" width="130">
-        <template #default="{ row }">
-          {{ IncomeCategoryLabels[row.category as IncomeCategory] || row.category }}
-        </template>
-      </el-table-column>
-      <el-table-column prop="description" label="描述" min-width="160" show-overflow-tooltip />
+      <el-table-column prop="service_content" label="服务项目及内容" min-width="180" show-overflow-tooltip />
+      <el-table-column prop="specification" label="规格" width="120" show-overflow-tooltip />
       <el-table-column label="数量" width="100" align="center">
         <template #default="{ row }">
           {{ row.quantity != null ? row.quantity + (row.unit ? ' ' + row.unit : '') : '-' }}
@@ -107,10 +89,9 @@
       </el-table-column>
       <el-table-column prop="unit_price" label="单价" width="90" align="right">
         <template #default="{ row }">
-          {{ row.unit_price != null ? '¥' + (row.unit_price / 100).toFixed(2) : '-' }}
+          {{ row.unit_price != null ? '¥' + (row.unit_price / 100).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : '-' }}
         </template>
       </el-table-column>
-      <el-table-column prop="size_info" label="尺寸" width="100" />
       <el-table-column prop="total_amount" label="总金额" width="120" align="right" sortable>
         <template #default="{ row }">
           <span style="font-weight: 600; color: var(--text-heading)">
@@ -187,14 +168,18 @@
     <el-dialog
       v-model="showFormDialog"
       :title="isEditing ? '编辑记录' : '新增记录'"
-      width="650px"
+      width="720px"
       destroy-on-close
+      @paste="onPaste"
+      @dragover.prevent="onDialogDragOver"
+      @drop.prevent="onDrop"
     >
       <el-form
         ref="formRef"
         :model="form"
         :rules="formRules"
-        label-width="80px"
+        label-width="130px"
+        @submit.prevent
       >
         <el-form-item label="日期" prop="date">
           <el-date-picker
@@ -207,19 +192,22 @@
           />
         </el-form-item>
 
-        <el-form-item label="类别" prop="category">
-          <el-select v-model="form.category" style="width: 100%" filterable allow-create>
-            <el-option
-              v-for="(label, key) in IncomeCategoryLabels"
-              :key="key"
-              :label="label"
-              :value="key"
-            />
-          </el-select>
+        <el-form-item label="服务项目及内容" prop="service_content">
+          <el-input
+            v-model="form.service_content"
+            type="textarea"
+            :autosize="{ minRows: 3, maxRows: 6 }"
+            placeholder="请输入服务项目及内容"
+          />
         </el-form-item>
 
-        <el-form-item label="描述" prop="description">
-          <el-input v-model="form.description" placeholder="项目描述" />
+        <el-form-item label="规格" prop="specification">
+          <el-input
+            v-model="form.specification"
+            type="textarea"
+            :autosize="{ minRows: 3, maxRows: 6 }"
+            placeholder="请输入规格"
+          />
         </el-form-item>
 
         <el-form-item label="数量" prop="quantity">
@@ -259,17 +247,19 @@
           </el-input-number>
         </el-form-item>
 
-        <el-form-item label="尺寸">
-          <el-input v-model="form.size_info" placeholder="例如：200×300cm" />
-        </el-form-item>
-
         <el-form-item label="备注">
-          <el-input v-model="form.remark" type="textarea" :rows="2" placeholder="可选备注" />
+          <el-input v-model="form.remark" type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" placeholder="可选备注" />
         </el-form-item>
 
         <!-- Image section -->
         <el-form-item label="图片">
-          <div class="image-upload">
+          <div
+            class="image-upload"
+            :class="{ 'drag-over': isDragOver }"
+            @dragover.prevent="onDialogDragOver"
+            @dragleave="isDragOver = false"
+            @drop.prevent="onDrop"
+          >
             <div
               v-for="(img, idx) in existingImages"
               :key="img.id"
@@ -284,29 +274,27 @@
               <div v-else class="img-missing-placeholder" style="width: 80px; height: 80px; margin-right: 0">
                 <span style="font-size: 11px">文件不存在</span>
               </div>
-              <el-button
+              <span
                 class="image-remove"
-                circle
-                size="small"
-                type="danger"
-                :icon="Delete"
+                title="移除图片"
                 @click="removeExistingImage(img.id, idx)"
-              />
+              ><el-icon><Delete /></el-icon></span>
             </div>
             <div
-              v-for="(file, idx) in newImages"
-              :key="'new-' + idx"
+              v-for="(img, idx) in newImages"
+              :key="img.tempId"
               class="image-preview"
             >
-              <img :src="file.preview" style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px" />
-              <el-button
-                class="image-remove"
-                circle
-                size="small"
-                type="danger"
-                :icon="Delete"
-                @click="newImages.splice(idx, 1)"
+              <img
+                :src="img.previewUrl"
+                style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px; cursor: pointer"
+                @click="previewNewImages(idx)"
               />
+              <span
+                class="image-remove"
+                title="移除图片"
+                @click="removeNewImage(idx)"
+              ><el-icon><Delete /></el-icon></span>
             </div>
             <el-upload
               :auto-upload="false"
@@ -319,6 +307,7 @@
               </div>
             </el-upload>
           </div>
+          <div class="upload-hint">支持拖拽图片、粘贴图片（Ctrl+V）</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -330,12 +319,12 @@
     </el-dialog>
 
     <!-- Settlement Dialog (T15) -->
-    <el-dialog v-model="showSettleDialog" title="标记结清" width="400px">
+    <el-dialog v-model="showSettleDialog" title="标记结清" width="460px">
       <el-form
         ref="settleFormRef"
         :model="settleForm"
         :rules="settleRules"
-        label-width="80px"
+        label-width="90px"
       >
         <el-form-item label="收款日期" prop="payment_date">
           <el-date-picker
@@ -377,14 +366,11 @@
       <div v-if="detailRecord" class="record-detail">
         <el-descriptions :column="2" border>
           <el-descriptions-item label="日期">{{ detailRecord.date }}</el-descriptions-item>
-          <el-descriptions-item label="类别">
-            {{ IncomeCategoryLabels[detailRecord.category as IncomeCategory] || detailRecord.category }}
-          </el-descriptions-item>
-          <el-descriptions-item label="描述">{{ detailRecord.description || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="总金额">¥{{ (detailRecord.total_amount / 100).toFixed(2) }}</el-descriptions-item>
+          <el-descriptions-item label="服务项目及内容">{{ detailRecord.service_content || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="规格">{{ detailRecord.specification || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="总金额">¥{{ (detailRecord.total_amount / 100).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) }}</el-descriptions-item>
           <el-descriptions-item label="数量">{{ detailRecord.quantity ?? '-' }}</el-descriptions-item>
-          <el-descriptions-item label="单价">{{ detailRecord.unit_price != null ? '¥' + (detailRecord.unit_price / 100).toFixed(2) : '-' }}</el-descriptions-item>
-          <el-descriptions-item label="尺寸">{{ detailRecord.size_info || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="单价">{{ detailRecord.unit_price != null ? '¥' + (detailRecord.unit_price / 100).toLocaleString('zh-CN', { minimumFractionDigits: 2 }) : '-' }}</el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag :type="detailRecord.settlement_status === 'settled' ? 'success' : 'warning'" size="small">
               {{ detailRecord.settlement_status === 'settled' ? '已结清' : '未结清' }}
@@ -451,14 +437,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from "vue";
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { save } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
-import type { AccountBook, IncomeRecord, IncomeImage, IncomeCategory, PaginatedRecords } from "@/types";
+import type { AccountBook, IncomeRecord, IncomeImage, PaginatedRecords } from "@/types";
 import { Plus, Delete, ArrowLeft } from "@element-plus/icons-vue";
-import { IncomeCategoryLabels, PaymentMethods } from "@/types";
+import { PaymentMethods } from "@/types";
 import { safeInvoke } from "@/utils/invoke";
 
 const route = useRoute();
@@ -477,7 +465,6 @@ const currentPage = ref(1);
 const pageSize = ref(20);
 
 const filters = reactive({
-  category: undefined as string | undefined,
   settlement_status: undefined as string | undefined,
   dateRange: null as [string, string] | null,
   keyword: "",
@@ -490,16 +477,53 @@ const selectedUnsettled = computed(() => {
 });
 
 const hasActiveFilters = computed(() => {
-  return !!(filters.category || filters.settlement_status || filters.dateRange || filters.keyword);
+  return !!(filters.settlement_status || filters.dateRange || filters.keyword);
 });
 
 const IMAGE_MISSING = "__MISSING__";
 const imageSrcMap = ref<Record<number, string>>({});
+let unlistenDragDrop: UnlistenFn | undefined;
+let lastDropTime = 0;
+const DROP_DEBOUNCE_MS = 500;
 
 onMounted(async () => {
+  await registerTauriDragDrop();
   await fetchBookName();
   await fetchRecords();
 });
+
+onUnmounted(() => {
+  unlistenDragDrop?.();
+});
+
+async function registerTauriDragDrop() {
+  try {
+    unlistenDragDrop = await getCurrentWindow().onDragDropEvent(async ({ payload }) => {
+      if (!showFormDialog.value) return;
+
+      const now = Date.now();
+      if (now - lastDropTime < DROP_DEBOUNCE_MS) return;
+      lastDropTime = now;
+
+      if (payload.type === "enter" || payload.type === "over") {
+        isDragOver.value = true;
+        return;
+      }
+
+      if (payload.type === "leave") {
+        isDragOver.value = false;
+        return;
+      }
+
+      isDragOver.value = false;
+      for (const path of payload.paths) {
+        await addImagePath(path);
+      }
+    });
+  } catch {
+    // Browser-only dev mode still uses the native HTML drop handler.
+  }
+}
 
 async function fetchBookName() {
   try {
@@ -514,7 +538,6 @@ async function fetchRecords() {
     const [date_from, date_to] = filters.dateRange || [null, null];
     const res = await safeInvoke<PaginatedRecords>("list_records", {
       bookId,
-      category: filters.category || null,
       settlementStatus: filters.settlement_status || null,
       dateFrom: date_from,
       dateTo: date_to,
@@ -588,12 +611,11 @@ const saving = ref(false);
 const formRef = ref<FormInstance>();
 const form = reactive({
   date: "",
-  category: "" as string,
-  description: "",
+  service_content: "",
+  specification: "",
   quantity: undefined as number | undefined,
   unit: "",
   unit_price: undefined as number | undefined,
-  size_info: "",
   total_amount: 0,
   remark: "",
 });
@@ -609,33 +631,42 @@ watch(
 
 const formRules: FormRules = {
   date: [{ required: true, message: "请选择日期", trigger: "blur" }],
-  category: [{ required: true, message: "请选择类别", trigger: "change" }],
-  description: [{ required: true, message: "请输入描述", trigger: "blur" }],
+  service_content: [{ required: true, message: "请输入服务项目及内容", trigger: "blur" }],
   quantity: [{ required: true, message: "请输入数量", trigger: "blur" }],
   unit: [{ required: true, message: "请选择单位", trigger: "change" }],
   unit_price: [{ required: true, message: "请输入单价", trigger: "blur" }],
   total_amount: [{ required: true, message: "请输入金额", trigger: "blur" }],
 };
 
+interface PendingImage {
+  tempId: string;
+  originalName: string;
+  previewUrl: string;
+}
+
 const existingImages = ref<IncomeImage[]>([]);
 const removedImageIds = ref<number[]>([]);
-const newImages = ref<{ file: File; preview: string }[]>([]);
+const newImages = ref<PendingImage[]>([]);
+const isDragOver = ref(false);
+const imageSessionId = ref("");
+const imageSessionCommitted = ref(false);
 
 function openCreate() {
   isEditing.value = false;
   editingId.value = null;
   form.date = new Date().toISOString().slice(0, 10);
-  form.category = "";
-  form.description = "";
+  form.service_content = "";
+  form.specification = "";
   form.quantity = undefined;
   form.unit = "";
   form.unit_price = undefined;
-  form.size_info = "";
   form.total_amount = 0;
   form.remark = "";
   existingImages.value = [];
   removedImageIds.value = [];
   newImages.value = [];
+  imageSessionId.value = crypto.randomUUID();
+  imageSessionCommitted.value = false;
   showFormDialog.value = true;
 }
 
@@ -643,17 +674,18 @@ function openEdit(record: IncomeRecord) {
   isEditing.value = true;
   editingId.value = record.id;
   form.date = record.date;
-  form.category = record.category;
-  form.description = record.description;
+  form.service_content = record.service_content;
+  form.specification = record.specification;
   form.quantity = record.quantity;
   form.unit = record.unit || "";
   form.unit_price = record.unit_price != null ? record.unit_price / 100 : undefined;
-  form.size_info = record.size_info;
   form.total_amount = record.total_amount / 100;
   form.remark = record.remark;
   existingImages.value = [...record.images];
   removedImageIds.value = [];
   newImages.value = [];
+  imageSessionId.value = crypto.randomUUID();
+  imageSessionCommitted.value = false;
   showFormDialog.value = true;
   // Preload existing images
   for (const img of record.images) {
@@ -661,15 +693,92 @@ function openEdit(record: IncomeRecord) {
   }
 }
 
-function onFileSelect(file: any) {
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    newImages.value.push({
-      file: file.raw,
-      preview: e.target!.result as string,
+async function addImageFile(file: File) {
+  if (!file.type.startsWith("image/")) return;
+  try {
+    const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+    const staged = await safeInvoke<{
+      temp_id: string;
+      original_name: string;
+      preview_data_url: string;
+    }>("stage_image_bytes", {
+      sessionId: imageSessionId.value,
+      fileName: file.name,
+      fileBytes: bytes,
     });
-  };
-  reader.readAsDataURL(file.raw);
+    newImages.value.push({
+      tempId: staged.temp_id,
+      originalName: staged.original_name,
+      previewUrl: staged.preview_data_url,
+    });
+  } catch (e: any) {
+    ElMessage.warning(e || "暂存图片失败，请重试");
+  }
+}
+
+async function addImagePath(path: string) {
+  try {
+    const staged = await safeInvoke<{
+      temp_id: string;
+      original_name: string;
+      preview_data_url: string;
+    }>("stage_image_from_path", {
+      sessionId: imageSessionId.value,
+      path,
+    });
+    newImages.value.push({
+      tempId: staged.temp_id,
+      originalName: staged.original_name,
+      previewUrl: staged.preview_data_url,
+    });
+  } catch (e: any) {
+    ElMessage.warning(e || "暂存图片失败，请重试");
+  }
+}
+
+async function onFileSelect(uploadFile: any) {
+  await addImageFile(uploadFile.raw as File);
+}
+
+function onDialogDragOver(e: DragEvent) {
+  if (e.dataTransfer?.types.includes("Files")) {
+    isDragOver.value = true;
+  }
+}
+
+async function onDrop(e: DragEvent) {
+  const now = Date.now();
+  if (now - lastDropTime < DROP_DEBOUNCE_MS) return;
+  lastDropTime = now;
+  isDragOver.value = false;
+  const files = e.dataTransfer?.files;
+  if (!files) return;
+  for (let i = 0; i < files.length; i++) {
+    await addImageFile(files[i]);
+  }
+}
+
+async function onPaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type.startsWith("image/")) {
+      const blob = items[i].getAsFile();
+      if (blob) await addImageFile(blob);
+    }
+  }
+}
+
+async function removeNewImage(idx: number) {
+  const img = newImages.value[idx];
+  if (!img) return;
+  try {
+    await safeInvoke("delete_staged_image", {
+      sessionId: imageSessionId.value,
+      tempId: img.tempId,
+    });
+  } catch { /* best-effort cleanup */ }
+  newImages.value.splice(idx, 1);
 }
 
 function removeExistingImage(imageId: number, _idx: number) {
@@ -687,44 +796,37 @@ async function handleSave() {
     const payload = {
       bookId,
       date: form.date,
-      category: form.category,
-      description: form.description,
+      serviceContent: form.service_content.trim(),
+      specification: form.specification.trim(),
       quantity: form.quantity,
       unit: form.unit,
       unitPrice: form.unit_price != null ? Math.round(form.unit_price * 100) : null,
-      sizeInfo: form.size_info,
-      totalAmount: Math.round(form.total_amount * 100),
+      totalAmount: Math.round(Math.round(form.total_amount * 1000) / 10),
       remark: form.remark,
     };
 
-    // Prepare image data
-    const imageData = await Promise.all(
-      newImages.value.map(async (img) => {
-        const buffer = await img.file.arrayBuffer();
-        return {
-          file_bytes: Array.from(new Uint8Array(buffer)),
-          file_name: img.file.name,
-        };
-      })
-    );
+    const tempImageIds = newImages.value.map((img) => img.tempId);
 
     if (isEditing.value && editingId.value) {
       const keepImageIds = existingImages.value.map(i => i.id);
-      await safeInvoke("update_record_with_images", {
+      await safeInvoke("update_record_with_staged_images", {
         id: editingId.value,
         ...payload,
         keepImageIds,
-        newImages: imageData,
+        sessionId: imageSessionId.value,
+        tempImageIds,
       });
       ElMessage.success("记录已更新");
     } else {
-      await safeInvoke("create_record_with_images", {
+      await safeInvoke("create_record_with_staged_images", {
         ...payload,
-        images: imageData,
+        sessionId: imageSessionId.value,
+        tempImageIds,
       });
       ElMessage.success("记录已创建");
     }
 
+    imageSessionCommitted.value = true;
     showFormDialog.value = false;
     fetchRecords();
   } catch (e: any) {
@@ -733,6 +835,17 @@ async function handleSave() {
     saving.value = false;
   }
 }
+
+// Clean up staging session when dialog closes without saving
+watch(showFormDialog, async (visible) => {
+  if (!visible && imageSessionId.value && !imageSessionCommitted.value) {
+    try {
+      await safeInvoke("cancel_image_staging_session", {
+        sessionId: imageSessionId.value,
+      });
+    } catch { /* best-effort cleanup */ }
+  }
+});
 
 async function handleDelete(id: number) {
   try {
@@ -788,9 +901,14 @@ async function handleSettle() {
 }
 
 async function batchSettle() {
+  let successCount = 0;
+  let failCount = 0;
   for (const id of selectedIds.value) {
     const record = records.value.find(r => r.id === id);
-    if (!record || record.settlement_status === "settled") continue;
+    if (!record || record.settlement_status === "settled") {
+      failCount++;
+      continue;
+    }
     const today = new Date().toISOString().slice(0, 10);
     try {
       await safeInvoke("settle_record", {
@@ -798,9 +916,16 @@ async function batchSettle() {
         paymentDate: today,
         paymentMethod: "批量结清",
       });
-    } catch { /* skip failed ones */ }
+      successCount++;
+    } catch {
+      failCount++;
+    }
   }
-  ElMessage.success("批量结清完成");
+  if (failCount > 0) {
+    ElMessage.warning(`批量结清完成：${successCount} 条成功，${failCount} 条失败`);
+  } else {
+    ElMessage.success(`批量结清完成，共 ${successCount} 条`);
+  }
   selectedIds.value = [];
   fetchRecords();
 }
@@ -880,10 +1005,25 @@ function previewImages(images: IncomeImage[], idx: number) {
   previewImagesList.value = images;
   previewIndex.value = idx;
   showPreview.value = true;
-  // Preload all images
   for (const img of images) {
     loadImageSrc(img.id);
   }
+}
+
+function previewNewImages(idx: number) {
+  const list: IncomeImage[] = newImages.value.map((img, i) => ({
+    id: -1 - i,
+    record_id: 0,
+    file_path: "",
+    original_name: img.originalName,
+    created_at: "",
+  }));
+  newImages.value.forEach((img, i) => {
+    imageSrcMap.value[-1 - i] = img.previewUrl;
+  });
+  previewImagesList.value = list;
+  previewIndex.value = idx;
+  showPreview.value = true;
 }
 
 const showDetailDialog = ref(false);
@@ -1007,16 +1147,40 @@ async function viewDetail(record: IncomeRecord) {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  padding: 8px;
+  border: 2px dashed transparent;
+  border-radius: 8px;
+  min-height: 96px;
+  transition: border-color 160ms ease, background-color 160ms ease;
+
+  &.drag-over {
+    border-color: var(--color-primary);
+    background: var(--hover-bg);
+  }
 
   .image-preview {
     position: relative;
 
     .image-remove {
       position: absolute;
-      top: -6px;
-      right: -6px;
-      width: 18px;
-      height: 18px;
+      top: -8px;
+      right: -8px;
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--color-danger);
+      color: #fff;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 12px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+      transition: transform 120ms ease;
+
+      &:hover {
+        transform: scale(1.15);
+      }
     }
   }
 
@@ -1039,6 +1203,13 @@ async function viewDetail(record: IncomeRecord) {
       color: var(--color-primary);
     }
   }
+}
+
+.upload-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.4;
 }
 
 .img-missing-tag {

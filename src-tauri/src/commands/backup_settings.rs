@@ -1,7 +1,9 @@
 use crate::commands::backup::{do_backup_with_type, do_restore};
 use crate::commands::backup_scheduler::BackupSchedulerState;
 use crate::db::DbState;
-use crate::models::{BackupFileInfo, BackupManifest, BackupOverview, BackupRunState, BackupSettings};
+use crate::models::{
+    BackupFileInfo, BackupManifest, BackupOverview, BackupRunState, BackupSettings,
+};
 use chrono::{Datelike, TimeZone};
 use std::path::{Path, PathBuf};
 use tauri::State;
@@ -33,7 +35,9 @@ fn load_settings(app_data_dir: &Path) -> BackupSettings {
 pub fn save_settings(app_data_dir: &Path, settings: &BackupSettings) -> Result<(), String> {
     let path = settings_path(app_data_dir);
     let json = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| format!("保存备份配置失败: {}", e))
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, &json).map_err(|e| format!("保存备份配置失败: {}", e))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("保存备份配置失败: {}", e))
 }
 
 pub fn load_run_state(app_data_dir: &Path) -> BackupRunState {
@@ -51,7 +55,9 @@ pub fn load_run_state(app_data_dir: &Path) -> BackupRunState {
 pub fn save_run_state(app_data_dir: &Path, state: &BackupRunState) -> Result<(), String> {
     let path = run_state_path(app_data_dir);
     let json = serde_json::to_string_pretty(state).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| format!("保存备份运行状态失败: {}", e))
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, &json).map_err(|e| format!("保存备份运行状态失败: {}", e))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("保存备份运行状态失败: {}", e))
 }
 
 fn read_manifest_from_zip(zip_path: &Path) -> Result<BackupManifest, String> {
@@ -91,9 +97,7 @@ pub fn scan_backup_dir_public(target_dir: &Path) -> Vec<BackupFileInfo> {
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
-        let size_bytes = std::fs::metadata(&path)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let size_bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
 
         match read_manifest_from_zip(&path) {
             Ok(manifest) => {
@@ -126,22 +130,22 @@ pub fn scan_backup_dir_public(target_dir: &Path) -> Vec<BackupFileInfo> {
     }
 
     // Sort by created_at descending, invalid ones go to the end
-    backups.sort_by(|a, b| {
-        match (&b.created_at, &a.created_at) {
-            (Some(b_time), Some(a_time)) => b_time.cmp(a_time),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => std::cmp::Ordering::Equal,
-        }
+    backups.sort_by(|a, b| match (&b.created_at, &a.created_at) {
+        (Some(b_time), Some(a_time)) => b_time.cmp(a_time),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
     });
 
     backups
 }
 
-fn next_daily(now: chrono::DateTime<chrono::Local>, hour: u32, minute: u32) -> Option<chrono::DateTime<chrono::Local>> {
-    let today_target = now
-        .date_naive()
-        .and_hms_opt(hour, minute, 0)?;
+fn next_daily(
+    now: chrono::DateTime<chrono::Local>,
+    hour: u32,
+    minute: u32,
+) -> Option<chrono::DateTime<chrono::Local>> {
+    let today_target = now.date_naive().and_hms_opt(hour, minute, 0)?;
     let today_target = chrono::Local.from_local_datetime(&today_target).single()?;
     if now < today_target {
         Some(today_target)
@@ -192,7 +196,9 @@ fn next_monthly(
 
     // Try this month first
     let target_day = day_of_month.min(last_day_of_month(current_month, current_month_num));
-    if let Some(target_date) = chrono::NaiveDate::from_ymd_opt(current_month, current_month_num, target_day) {
+    if let Some(target_date) =
+        chrono::NaiveDate::from_ymd_opt(current_month, current_month_num, target_day)
+    {
         if target_date >= today {
             let t = target_date.and_hms_opt(hour, minute, 0)?;
             let dt = chrono::Local.from_local_datetime(&t).single()?;
@@ -246,7 +252,11 @@ fn compute_next_backup_at(settings: &BackupSettings, run_state: &BackupRunState)
             match base {
                 Some(last) => {
                     let next = last + chrono::Duration::minutes(interval);
-                    if next <= now { now } else { next }
+                    if next <= now {
+                        now
+                    } else {
+                        next
+                    }
                 }
                 None => {
                     // Never ran — first execution will happen almost immediately (after scheduler startup delay)
@@ -279,10 +289,7 @@ pub struct RetentionResult {
     pub warnings: Vec<String>,
 }
 
-pub fn apply_retention(
-    settings: &BackupSettings,
-    backups: &[BackupFileInfo],
-) -> RetentionResult {
+pub fn apply_retention(settings: &BackupSettings, backups: &[BackupFileInfo]) -> RetentionResult {
     let mut result = RetentionResult {
         deleted_count: 0,
         failed_count: 0,
@@ -302,9 +309,7 @@ pub fn apply_retention(
     let mut auto_backups: Vec<&BackupFileInfo> = backups
         .iter()
         .filter(|b| {
-            b.backup_type == "auto"
-                && b.is_valid
-                && Path::new(&b.path).parent() == Some(target_dir)
+            b.backup_type == "auto" && b.is_valid && Path::new(&b.path).parent() == Some(target_dir)
         })
         .collect();
 
@@ -364,27 +369,21 @@ pub async fn update_backup_settings(
 
         // Validate frequency-specific fields
         match settings.frequency.as_str() {
-            "interval_minutes" | "interval_hours" => {
-                match settings.interval_minutes {
-                    None | Some(0) => return Err("请设置备份间隔".into()),
-                    Some(m) if m > 10080 => return Err("备份间隔不能超过 7 天".into()),
-                    _ => {}
-                }
-            }
-            "weekly" => {
-                match settings.day_of_week {
-                    None => return Err("请选择每周执行日".into()),
-                    Some(d) if d < 1 || d > 7 => return Err("每周执行日必须在 1-7 之间".into()),
-                    _ => {}
-                }
-            }
-            "monthly" => {
-                match settings.day_of_month {
-                    None => return Err("请选择每月执行日".into()),
-                    Some(d) if d < 1 || d > 28 => return Err("每月执行日必须在 1-28 之间".into()),
-                    _ => {}
-                }
-            }
+            "interval_minutes" | "interval_hours" => match settings.interval_minutes {
+                None | Some(0) => return Err("请设置备份间隔".into()),
+                Some(m) if m > 10080 => return Err("备份间隔不能超过 7 天".into()),
+                _ => {}
+            },
+            "weekly" => match settings.day_of_week {
+                None => return Err("请选择每周执行日".into()),
+                Some(d) if d < 1 || d > 7 => return Err("每周执行日必须在 1-7 之间".into()),
+                _ => {}
+            },
+            "monthly" => match settings.day_of_month {
+                None => return Err("请选择每月执行日".into()),
+                Some(d) if d < 1 || d > 28 => return Err("每月执行日必须在 1-28 之间".into()),
+                _ => {}
+            },
             "daily" => {}
             other => return Err(format!("不支持的备份频率: {}", other)),
         }
@@ -407,20 +406,28 @@ pub async fn get_backup_overview(
     let settings = load_settings(&db.app_data_dir);
     let run_state = load_run_state(&db.app_data_dir);
 
-    let (backups, total_count, auto_count, manual_count, unknown_count, total_size_bytes, oldest, latest) =
-        if let Some(ref dir) = settings.target_dir {
-            let files = scan_backup_dir(Path::new(dir));
-            let total = files.len();
-            let auto = files.iter().filter(|b| b.backup_type == "auto").count();
-            let manual = files.iter().filter(|b| b.backup_type == "manual").count();
-            let unknown = total - auto - manual;
-            let size: u64 = files.iter().map(|b| b.size_bytes).sum();
-            let oldest = files.last().and_then(|b| b.created_at.clone());
-            let latest = files.first().and_then(|b| b.created_at.clone());
-            (files, total, auto, manual, unknown, size, oldest, latest)
-        } else {
-            (Vec::new(), 0, 0, 0, 0, 0, None, None)
-        };
+    let (
+        backups,
+        total_count,
+        auto_count,
+        manual_count,
+        unknown_count,
+        total_size_bytes,
+        oldest,
+        latest,
+    ) = if let Some(ref dir) = settings.target_dir {
+        let files = scan_backup_dir(Path::new(dir));
+        let total = files.len();
+        let auto = files.iter().filter(|b| b.backup_type == "auto").count();
+        let manual = files.iter().filter(|b| b.backup_type == "manual").count();
+        let unknown = total - auto - manual;
+        let size: u64 = files.iter().map(|b| b.size_bytes).sum();
+        let oldest = files.last().and_then(|b| b.created_at.clone());
+        let latest = files.first().and_then(|b| b.created_at.clone());
+        (files, total, auto, manual, unknown, size, oldest, latest)
+    } else {
+        (Vec::new(), 0, 0, 0, 0, 0, None, None)
+    };
 
     let next_backup_at = compute_next_backup_at(&settings, &run_state);
 
@@ -447,10 +454,7 @@ pub async fn run_backup_now(
 ) -> Result<String, String> {
     db.validate_token(&token).await?;
     let settings = load_settings(&db.app_data_dir);
-    let target_dir = settings
-        .target_dir
-        .as_deref()
-        .ok_or("请先配置备份目录")?;
+    let target_dir = settings.target_dir.as_deref().ok_or("请先配置备份目录")?;
 
     let btype = backup_type.as_deref().unwrap_or("manual");
 
@@ -458,9 +462,7 @@ pub async fn run_backup_now(
     let result = do_backup_with_type(&db, target_dir, btype).await;
 
     // Update run state
-    let now_str = chrono::Local::now()
-        .format("%Y-%m-%d %H:%M:%S")
-        .to_string();
+    let now_str = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let mut run_state = load_run_state(&db.app_data_dir);
     run_state.last_run_at = Some(now_str.clone());
     if btype == "auto" {

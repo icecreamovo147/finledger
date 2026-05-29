@@ -1044,7 +1044,9 @@ pub fn cleanup_stale_staging_sessions(app_data_dir: &Path) {
         if let Ok(metadata) = path.metadata() {
             if let Ok(modified) = metadata.modified() {
                 if modified < cutoff {
-                    std::fs::remove_dir_all(&path).ok();
+                    if let Err(e) = std::fs::remove_dir_all(&path) {
+                        eprintln!("警告: 无法清理过期暂存目录 {}: {}", path.display(), e);
+                    }
                 }
             }
         }
