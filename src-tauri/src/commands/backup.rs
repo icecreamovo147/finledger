@@ -44,6 +44,9 @@ fn add_dir_to_zip(
     base_dir: &Path,
     prefix: &str,
 ) -> Result<u32, String> {
+    let canonical_base = base_dir
+        .canonicalize()
+        .map_err(|e| format!("无法解析图片目录: {}", e))?;
     let mut count = 0u32;
     let entries = std::fs::read_dir(base_dir).map_err(|e| e.to_string())?;
     for entry in entries {
@@ -56,8 +59,23 @@ fn add_dir_to_zip(
         let zip_path = format!("{}/{}", prefix, name);
 
         if path.is_dir() {
+            let canonical_sub = path
+                .canonicalize()
+                .map_err(|e| format!("无法解析子目录: {}", e))?;
+            if !canonical_sub.starts_with(&canonical_base) {
+                eprintln!("警告: 跳过不在备份目录内的目录: {}", canonical_sub.display());
+                continue;
+            }
             count += add_dir_to_zip(zip, &path, &zip_path)?;
         } else {
+            // Verify the file is within the canonical base directory
+            let canonical_path = path
+                .canonicalize()
+                .map_err(|e| format!("无法解析文件路径: {}", e))?;
+            if !canonical_path.starts_with(&canonical_base) {
+                eprintln!("警告: 跳过不在备份目录内的文件: {}", canonical_path.display());
+                continue;
+            }
             zip.start_file(&zip_path, SimpleFileOptions::default())
                 .map_err(|e| e.to_string())?;
             let mut f = std::fs::File::open(&path).map_err(|e| e.to_string())?;
@@ -138,8 +156,8 @@ async fn do_restore_flbackup(db: &DbState, backup: &Path) -> Result<String, Stri
 
     if manifest_path.exists() && extracted_db.exists() {
         let manifest_data = std::fs::read_to_string(&manifest_path).map_err(|e| e.to_string())?;
-        let manifest: BackupManifest =
-            serde_json::from_str(&manifest_data).map_err(|e| format!("解析 manifest 失败: {}", e))?;
+        let manifest: BackupManifest = serde_json::from_str(&manifest_data)
+            .map_err(|e| format!("解析 manifest 失败: {}", e))?;
 
         let actual_sha256 = compute_sha256(&extracted_db)?;
         if actual_sha256 != manifest.db_sha256 {
@@ -152,7 +170,16 @@ async fn do_restore_flbackup(db: &DbState, backup: &Path) -> Result<String, Stri
     }
 
     // Perform the restore
-    let result = restore_db_and_images(db, &extracted_db, if extracted_images.exists() { Some(&extracted_images) } else { None }).await;
+    let result = restore_db_and_images(
+        db,
+        &extracted_db,
+        if extracted_images.exists() {
+            Some(&extracted_images)
+        } else {
+            None
+        },
+    )
+    .await;
 
     cleanup_dir(&tmp_dir);
 
@@ -194,8 +221,7 @@ async fn restore_db_and_images(
     let backup_wal = wal_path.with_extension("db-wal.pre-restore");
     let backup_shm = shm_path.with_extension("db-shm.pre-restore");
 
-    std::fs::copy(&db_path, &backup_current)
-        .map_err(|e| format!("备份当前数据库失败: {}", e))?;
+    std::fs::copy(&db_path, &backup_current).map_err(|e| format!("备份当前数据库失败: {}", e))?;
     if wal_path.exists() {
         std::fs::copy(&wal_path, &backup_wal).ok();
     }
@@ -235,7 +261,18 @@ async fn restore_db_and_images(
 
     // Replace database file
     if let Err(e) = std::fs::copy(new_db_path, &db_path) {
-        rollback_all(db, &db_path, &wal_path, &shm_path, &backup_current, &backup_wal, &backup_shm, &backup_images_dir, has_images_backup).await;
+        rollback_all(
+            db,
+            &db_path,
+            &wal_path,
+            &shm_path,
+            &backup_current,
+            &backup_wal,
+            &backup_shm,
+            &backup_images_dir,
+            has_images_backup,
+        )
+        .await;
         return Err(format!("恢复失败，已回滚: {}", e));
     }
 
@@ -243,16 +280,49 @@ async fn restore_db_and_images(
     if let Some(img_dir) = new_images_dir {
         if db.images_dir.exists() {
             if let Err(e) = std::fs::remove_dir_all(&db.images_dir) {
-                rollback_all(db, &db_path, &wal_path, &shm_path, &backup_current, &backup_wal, &backup_shm, &backup_images_dir, has_images_backup).await;
+                rollback_all(
+                    db,
+                    &db_path,
+                    &wal_path,
+                    &shm_path,
+                    &backup_current,
+                    &backup_wal,
+                    &backup_shm,
+                    &backup_images_dir,
+                    has_images_backup,
+                )
+                .await;
                 return Err(format!("删除旧图片目录失败，已回滚: {}", e));
             }
         }
         if let Err(e) = std::fs::create_dir_all(&db.images_dir) {
-            rollback_all(db, &db_path, &wal_path, &shm_path, &backup_current, &backup_wal, &backup_shm, &backup_images_dir, has_images_backup).await;
+            rollback_all(
+                db,
+                &db_path,
+                &wal_path,
+                &shm_path,
+                &backup_current,
+                &backup_wal,
+                &backup_shm,
+                &backup_images_dir,
+                has_images_backup,
+            )
+            .await;
             return Err(format!("创建图片目录失败，已回滚: {}", e));
         }
         if let Err(e) = copy_dir_recursive(img_dir, &db.images_dir) {
-            rollback_all(db, &db_path, &wal_path, &shm_path, &backup_current, &backup_wal, &backup_shm, &backup_images_dir, has_images_backup).await;
+            rollback_all(
+                db,
+                &db_path,
+                &wal_path,
+                &shm_path,
+                &backup_current,
+                &backup_wal,
+                &backup_shm,
+                &backup_images_dir,
+                has_images_backup,
+            )
+            .await;
             return Err(format!("恢复图片失败，已回滚: {}", e));
         }
     }
@@ -265,7 +335,18 @@ async fn restore_db_and_images(
     {
         Ok(pool) => pool,
         Err(e) => {
-            rollback_all(db, &db_path, &wal_path, &shm_path, &backup_current, &backup_wal, &backup_shm, &backup_images_dir, has_images_backup).await;
+            rollback_all(
+                db,
+                &db_path,
+                &wal_path,
+                &shm_path,
+                &backup_current,
+                &backup_wal,
+                &backup_shm,
+                &backup_images_dir,
+                has_images_backup,
+            )
+            .await;
             return Err(format!("恢复后重连失败，已回滚: {}", e));
         }
     };
@@ -274,13 +355,38 @@ async fn restore_db_and_images(
 
     // Post-restore integrity check — must fail on error
     if let Some(err) = db.check_integrity().await {
-        rollback_all(db, &db_path, &wal_path, &shm_path, &backup_current, &backup_wal, &backup_shm, &backup_images_dir, has_images_backup).await;
-        return Err(format!("恢复后数据库完整性检测失败，已回滚到恢复前数据: {}", err));
+        rollback_all(
+            db,
+            &db_path,
+            &wal_path,
+            &shm_path,
+            &backup_current,
+            &backup_wal,
+            &backup_shm,
+            &backup_images_dir,
+            has_images_backup,
+        )
+        .await;
+        return Err(format!(
+            "恢复后数据库完整性检测失败，已回滚到恢复前数据: {}",
+            err
+        ));
     }
 
     // Run migrations on the restored database
     if let Err(e) = db.run_migrations().await {
-        rollback_all(db, &db_path, &wal_path, &shm_path, &backup_current, &backup_wal, &backup_shm, &backup_images_dir, has_images_backup).await;
+        rollback_all(
+            db,
+            &db_path,
+            &wal_path,
+            &shm_path,
+            &backup_current,
+            &backup_wal,
+            &backup_shm,
+            &backup_images_dir,
+            has_images_backup,
+        )
+        .await;
         return Err(format!("恢复后迁移失败，已回滚: {}", e));
     }
 
@@ -400,7 +506,11 @@ pub async fn do_backup(db: &DbState, target_dir: &str) -> Result<String, String>
     do_backup_with_type(db, target_dir, "manual").await
 }
 
-pub async fn do_backup_with_type(db: &DbState, target_dir: &str, backup_type: &str) -> Result<String, String> {
+pub async fn do_backup_with_type(
+    db: &DbState,
+    target_dir: &str,
+    backup_type: &str,
+) -> Result<String, String> {
     let pool = db.raw_pool().await;
 
     let check: Vec<(String,)> = sqlx::query_as("PRAGMA integrity_check")
@@ -453,9 +563,7 @@ pub async fn do_backup_with_type(db: &DbState, target_dir: &str, backup_type: &s
         backup_format_version: 1,
         app: "FinLedger".into(),
         version: env!("CARGO_PKG_VERSION").into(),
-        created_at: chrono::Local::now()
-            .format("%Y-%m-%d %H:%M:%S")
-            .to_string(),
+        created_at: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
         db_sha256,
         images_count,
         backup_type: Some(backup_type.to_string()),

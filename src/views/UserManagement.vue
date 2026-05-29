@@ -67,21 +67,13 @@
     </el-dialog>
 
     <!-- 修改密码弹窗 -->
-    <el-dialog v-model="showPwdDialog" title="修改密码" width="400px">
+    <el-dialog v-model="showPwdDialog" title="重置密码" width="400px">
       <el-form
         ref="pwdFormRef"
         :model="pwdForm"
         :rules="pwdRules"
         label-position="top"
       >
-        <el-form-item label="旧密码" prop="oldPassword">
-          <el-input
-            v-model="pwdForm.oldPassword"
-            type="password"
-            placeholder="请输入旧密码"
-            show-password
-          />
-        </el-form-item>
         <el-form-item label="新密码" prop="newPassword">
           <el-input
             v-model="pwdForm.newPassword"
@@ -137,9 +129,8 @@ const showPwdDialog = ref(false);
 const pwdFormRef = ref<FormInstance>();
 const changingPwd = ref(false);
 const targetUserId = ref(0);
-const pwdForm = reactive({ oldPassword: "", newPassword: "" });
+const pwdForm = reactive({ newPassword: "" });
 const pwdRules: FormRules = {
-  oldPassword: [{ required: true, message: "请输入旧密码", trigger: "blur" }],
   newPassword: [
     { required: true, message: "请输入新密码", trigger: "blur" },
     { min: 4, message: "密码至少 4 位", trigger: "blur" },
@@ -211,7 +202,6 @@ async function handleDelete(userId: number) {
 
 function openChangePwd(user: User) {
   targetUserId.value = user.id;
-  pwdForm.oldPassword = "";
   pwdForm.newPassword = "";
   showPwdDialog.value = true;
 }
@@ -223,9 +213,8 @@ async function handleChangePwd() {
 
   changingPwd.value = true;
   try {
-    await safeInvoke("change_password", {
-      userId: targetUserId.value,
-      oldPassword: pwdForm.oldPassword,
+    await safeInvoke("admin_reset_password", {
+      targetUserId: targetUserId.value,
       newPassword: pwdForm.newPassword,
     });
     ElMessage.success("密码修改成功");

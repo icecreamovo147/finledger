@@ -40,7 +40,9 @@ async fn create_session(db: &DbState, user_id: i64) -> String {
 async fn seed(db: &DbState) -> (i64, String, i64, i64, i64) {
     let pool = db.raw_pool().await;
 
-    auth::do_init_admin(db, "testuser", "pass1234").await.unwrap();
+    auth::do_init_admin(db, "testuser", "pass1234")
+        .await
+        .unwrap();
 
     let user_id: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = 'testuser'")
         .fetch_one(&pool)
@@ -56,8 +58,8 @@ async fn seed(db: &DbState) -> (i64, String, i64, i64, i64) {
             .unwrap();
 
     let unsettled_id: i64 = sqlx::query_scalar(
-        "INSERT INTO income_records (book_id, date, category, description, total_amount, settlement_status) \
-         VALUES (?1, '2024-01-01', 'Print', '打印订单', 50000, 'unsettled') RETURNING id",
+        "INSERT INTO income_records (book_id, date, service_content, total_amount, settlement_status) \
+         VALUES (?1, '2024-01-01', '门头广告制作', 50000, 'unsettled') RETURNING id",
     )
     .bind(book_id)
     .fetch_one(&pool)
@@ -65,8 +67,8 @@ async fn seed(db: &DbState) -> (i64, String, i64, i64, i64) {
     .unwrap();
 
     let settled_id: i64 = sqlx::query_scalar(
-        "INSERT INTO income_records (book_id, date, category, description, total_amount, settlement_status, payment_date, payment_method) \
-         VALUES (?1, '2024-01-02', 'Design', '设计费', 80000, 'settled', '2024-01-15', '银行转账') RETURNING id",
+        "INSERT INTO income_records (book_id, date, service_content, total_amount, settlement_status, payment_date, payment_method) \
+         VALUES (?1, '2024-01-02', '品牌设计服务', 80000, 'settled', '2024-01-15', '银行转账') RETURNING id",
     )
     .bind(book_id)
     .fetch_one(&pool)
@@ -88,14 +90,21 @@ async fn cmd_settled_record_rejects_update() {
         settled,
         "2024-06-01".into(),
         "Print".into(),
-        None, None, None, None, None,
+        None,
+        None,
+        None,
+        None,
         99999,
         None,
     )
     .await
     .unwrap_err();
 
-    assert!(err.contains("已结清"), "Expected '已结清' error, got: {}", err);
+    assert!(
+        err.contains("已结清"),
+        "Expected '已结清' error, got: {}",
+        err
+    );
 }
 
 // ===== Settled records cannot be deleted (via command) =====
@@ -106,7 +115,11 @@ async fn cmd_settled_record_rejects_delete() {
     let (_uid, _token, _bid, _unsettled, settled) = seed(&db).await;
 
     let err = record::do_delete_record(&db, settled).await.unwrap_err();
-    assert!(err.contains("已结清"), "Expected '已结清' error, got: {}", err);
+    assert!(
+        err.contains("已结清"),
+        "Expected '已结清' error, got: {}",
+        err
+    );
 }
 
 // ===== Unsettled record CAN be edited and deleted =====
@@ -120,9 +133,11 @@ async fn cmd_unsettled_record_allows_update_and_delete() {
         &db,
         unsettled,
         "2024-06-01".into(),
-        "Copy".into(),
-        Some("更新描述".into()),
-        None, None, None, None,
+        "复印服务".into(),
+        Some("A4".into()),
+        None,
+        None,
+        None,
         60000,
         None,
     )
@@ -154,7 +169,11 @@ async fn cmd_export_rejects_settled_records() {
         .await
         .unwrap_err();
 
-    assert!(err.contains("只能导出未结清"), "Expected settled rejection, got: {}", err);
+    assert!(
+        err.contains("只能导出未结清"),
+        "Expected settled rejection, got: {}",
+        err
+    );
 }
 
 // ===== Export with only unsettled records succeeds =====
@@ -165,7 +184,11 @@ async fn cmd_export_allows_unsettled_records() {
     let (_uid, _token, bid, unsettled, _settled) = seed(&db).await;
 
     let tmp = tempfile::NamedTempFile::new().unwrap();
-    let path = tmp.path().with_extension("xlsx").to_string_lossy().to_string();
+    let path = tmp
+        .path()
+        .with_extension("xlsx")
+        .to_string_lossy()
+        .to_string();
 
     let result = export::do_export_excel(&db, bid, vec![unsettled], &path)
         .await
@@ -183,7 +206,11 @@ async fn cmd_export_all_unsettled_works() {
     let (_uid, _token, bid, _unsettled, _settled) = seed(&db).await;
 
     let tmp = tempfile::NamedTempFile::new().unwrap();
-    let path = tmp.path().with_extension("xlsx").to_string_lossy().to_string();
+    let path = tmp
+        .path()
+        .with_extension("xlsx")
+        .to_string_lossy()
+        .to_string();
 
     let result = export::do_export_all_unsettled(&db, bid, &path)
         .await
@@ -200,7 +227,11 @@ async fn cmd_delete_user_rejects_self() {
     let (uid, _token, _bid, _unsettled, _settled) = seed(&db).await;
 
     let err = auth::do_delete_user(&db, uid, uid).await.unwrap_err();
-    assert!(err.contains("不能删除"), "Expected self-deletion error, got: {}", err);
+    assert!(
+        err.contains("不能删除"),
+        "Expected self-deletion error, got: {}",
+        err
+    );
 }
 
 // ===== delete_user CAN delete another user (via command) =====
@@ -210,7 +241,9 @@ async fn cmd_delete_user_allows_other() {
     let db = setup_db().await;
     let (uid, _token, _bid, _unsettled, _settled) = seed(&db).await;
 
-    auth::do_create_user(&db, "other", "pass5678").await.unwrap();
+    auth::do_create_user(&db, "other", "pass5678")
+        .await
+        .unwrap();
 
     let pool = db.raw_pool().await;
     let other_id: i64 = sqlx::query_scalar("SELECT id FROM users WHERE username = 'other'")
@@ -228,22 +261,19 @@ async fn cmd_delete_user_allows_other() {
     assert_eq!(count.0, 0);
 }
 
-// ===== list_records: filter by category (via command) =====
+// ===== list_records: keyword search on service_content (via command) =====
 
 #[tokio::test]
-async fn cmd_list_records_filter_category() {
+async fn cmd_list_records_search_service_content() {
     let db = setup_db().await;
     let (_uid, _token, bid, _unsettled, _settled) = seed(&db).await;
 
-    let res = record::do_list_records(
-        &db, bid,
-        Some("Print".into()), None, None, None, None, None, None,
-    )
-    .await
-    .unwrap();
+    let res = record::do_list_records(&db, bid, None, None, None, Some("门头".into()), None, None)
+        .await
+        .unwrap();
 
     assert_eq!(res.total, 1);
-    assert_eq!(res.records[0].category, "Print");
+    assert!(res.records[0].service_content.contains("门头"));
 }
 
 // ===== list_records: filter by settlement_status (via command) =====
@@ -254,8 +284,14 @@ async fn cmd_list_records_filter_status() {
     let (_uid, _token, bid, _unsettled, _settled) = seed(&db).await;
 
     let res = record::do_list_records(
-        &db, bid,
-        None, Some("unsettled".into()), None, None, None, None, None,
+        &db,
+        bid,
+        Some("unsettled".into()),
+        None,
+        None,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -272,22 +308,28 @@ async fn cmd_list_records_filter_date_range() {
     let (_uid, _token, bid, _unsettled, _settled) = seed(&db).await;
 
     let res = record::do_list_records(
-        &db, bid,
-        None, None,
+        &db,
+        bid,
+        None,
         Some("2024-01-01".into()),
         Some("2024-01-31".into()),
-        None, None, None,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
     assert_eq!(res.total, 2);
 
     let res = record::do_list_records(
-        &db, bid,
-        None, None,
+        &db,
+        bid,
+        None,
         Some("2024-01-02".into()),
         Some("2024-01-02".into()),
-        None, None, None,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -302,27 +344,17 @@ async fn cmd_list_records_filter_keyword() {
     let db = setup_db().await;
     let (_uid, _token, bid, _unsettled, _settled) = seed(&db).await;
 
-    let res = record::do_list_records(
-        &db, bid,
-        None, None, None, None,
-        Some("打印".into()),
-        None, None,
-    )
-    .await
-    .unwrap();
+    let res = record::do_list_records(&db, bid, None, None, None, Some("门头".into()), None, None)
+        .await
+        .unwrap();
     assert_eq!(res.total, 1);
-    assert!(res.records[0].description.contains("打印"));
+    assert!(res.records[0].service_content.contains("门头"));
 
-    let res = record::do_list_records(
-        &db, bid,
-        None, None, None, None,
-        Some("设计".into()),
-        None, None,
-    )
-    .await
-    .unwrap();
+    let res = record::do_list_records(&db, bid, None, None, None, Some("品牌".into()), None, None)
+        .await
+        .unwrap();
     assert_eq!(res.total, 1);
-    assert!(res.records[0].description.contains("设计"));
+    assert!(res.records[0].service_content.contains("品牌"));
 }
 
 // ===== list_records: pagination (via command) =====
@@ -335,7 +367,7 @@ async fn cmd_list_records_pagination() {
 
     for i in 3..11 {
         sqlx::query(
-            "INSERT INTO income_records (book_id, date, category, total_amount) VALUES (?1, ?2, 'Other', ?3)",
+            "INSERT INTO income_records (book_id, date, service_content, total_amount) VALUES (?1, ?2, '其他服务', ?3)",
         )
         .bind(bid)
         .bind(format!("2024-03-{:02}", i))
@@ -345,23 +377,15 @@ async fn cmd_list_records_pagination() {
         .unwrap();
     }
 
-    let p1 = record::do_list_records(
-        &db, bid,
-        None, None, None, None, None,
-        Some(1), Some(3),
-    )
-    .await
-    .unwrap();
+    let p1 = record::do_list_records(&db, bid, None, None, None, None, Some(1), Some(3))
+        .await
+        .unwrap();
     assert_eq!(p1.total, 10);
     assert_eq!(p1.records.len(), 3);
 
-    let p2 = record::do_list_records(
-        &db, bid,
-        None, None, None, None, None,
-        Some(2), Some(3),
-    )
-    .await
-    .unwrap();
+    let p2 = record::do_list_records(&db, bid, None, None, None, None, Some(2), Some(3))
+        .await
+        .unwrap();
     assert_eq!(p2.records.len(), 3);
 
     let p1_ids: Vec<i64> = p1.records.iter().map(|r| r.id).collect();
@@ -370,13 +394,9 @@ async fn cmd_list_records_pagination() {
         assert!(!p2_ids.contains(id), "Pages must not overlap");
     }
 
-    let p4 = record::do_list_records(
-        &db, bid,
-        None, None, None, None, None,
-        Some(4), Some(3),
-    )
-    .await
-    .unwrap();
+    let p4 = record::do_list_records(&db, bid, None, None, None, None, Some(4), Some(3))
+        .await
+        .unwrap();
     assert_eq!(p4.records.len(), 1);
 }
 
@@ -397,8 +417,14 @@ async fn cmd_list_records_includes_images() {
     .unwrap();
 
     let res = record::do_list_records(
-        &db, bid,
-        None, Some("unsettled".into()), None, None, None, None, None,
+        &db,
+        bid,
+        Some("unsettled".into()),
+        None,
+        None,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -415,7 +441,7 @@ async fn cmd_list_records_no_keyword_works() {
     let db = setup_db().await;
     let (_uid, _token, bid, _unsettled, _settled) = seed(&db).await;
 
-    let res = record::do_list_records(&db, bid, None, None, None, None, None, None, None)
+    let res = record::do_list_records(&db, bid, None, None, None, None, None, None)
         .await
         .unwrap();
     assert_eq!(res.total, 2);

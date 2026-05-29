@@ -1,29 +1,3 @@
-// 收入类别
-export type IncomeCategory =
-  | "Print"
-  | "Copy"
-  | "Binding"
-  | "PostProcess"
-  | "Design"
-  | "MaterialProd"
-  | "AdRental"
-  | "AdAgency"
-  | "Installation"
-  | "Other";
-
-export const IncomeCategoryLabels: Record<IncomeCategory, string> = {
-  Print: "打印",
-  Copy: "复印",
-  Binding: "装订",
-  PostProcess: "后加工",
-  Design: "广告设计费",
-  MaterialProd: "物料制作",
-  AdRental: "广告位租赁",
-  AdAgency: "代理投放",
-  Installation: "安装费",
-  Other: "其他",
-};
-
 // 结算状态
 export type SettlementStatus = "unsettled" | "settled";
 
@@ -62,12 +36,11 @@ export interface IncomeRecord {
   id: number;
   book_id: number;
   date: string;
-  category: IncomeCategory;
-  description: string;
+  service_content: string;
+  specification: string;
   quantity?: number;
   unit: string;
   unit_price?: number;
-  size_info: string;
   total_amount: number;
   settlement_status: SettlementStatus;
   payment_date?: string;
@@ -111,15 +84,10 @@ export interface DashboardStats {
     settled_amount: number;
     unsettled_amount: number;
   }[];
-  category_share: {
-    category: string;
-    amount: number;
-  }[];
 }
 
 // 记录筛选条件
 export interface RecordFilter {
-  category?: IncomeCategory;
   settlement_status?: SettlementStatus;
   date_from?: string;
   date_to?: string;

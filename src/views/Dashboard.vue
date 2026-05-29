@@ -103,19 +103,6 @@
             </div>
 
             <div class="chart-card">
-                <h3>近 12 个月收入类别占比</h3>
-                <div v-if="!categoryShareHasData" class="chart-empty">
-                    <el-empty description="暂无数据" />
-                </div>
-                <v-chart
-                    v-else
-                    :option="categoryShareOption"
-                    style="height: 320px"
-                    autoresize
-                />
-            </div>
-
-            <div class="chart-card">
                 <h3>各账本未结清金额排名</h3>
                 <div v-if="stats.book_ranking.length === 0" class="chart-empty">
                     <el-empty description="暂无数据" />
@@ -143,8 +130,7 @@ import {
     LegendComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
-import type { DashboardStats, IncomeCategory } from "@/types";
-import { IncomeCategoryLabels } from "@/types";
+import type { DashboardStats } from "@/types";
 import { safeInvoke } from "@/utils/invoke";
 import { useThemeStore } from "@/stores/theme";
 import { getChartColors, getChartTextColor } from "@/utils/chart-theme";
@@ -167,7 +153,6 @@ const stats = ref<DashboardStats>({
     book_ranking: [],
     income_trend: [],
     settlement_trend: [],
-    category_share: [],
 });
 
 const rangeMonths = ref<6 | 12>(12);
@@ -179,8 +164,6 @@ const incomeTrendData = computed(() =>
 const settlementTrendData = computed(() =>
     stats.value.settlement_trend.slice(-rangeMonths.value),
 );
-const categoryShareData = computed(() => stats.value.category_share);
-
 const incomeTrendHasData = computed(() =>
     incomeTrendData.value.some((item) => item.total_amount > 0),
 );
@@ -189,10 +172,6 @@ const settlementTrendHasData = computed(() =>
         (item) => item.settled_amount > 0 || item.unsettled_amount > 0,
     ),
 );
-const categoryShareHasData = computed(() =>
-    categoryShareData.value.some((item) => item.amount > 0),
-);
-
 const incomeTrendOption = computed(() => {
     const colors = getChartColors();
     return {
@@ -296,39 +275,6 @@ const settlementTrendOption = computed(() => {
                 ),
                 itemStyle: { color: colors[2], borderRadius: [4, 4, 0, 0] },
                 barMaxWidth: 30,
-            },
-        ],
-    };
-});
-
-const categoryShareOption = computed(() => {
-    const colors = getChartColors();
-    return {
-        tooltip: {
-            trigger: "item",
-            formatter: (item: any) => {
-                const name = item.name || "";
-                return `${name}<br/>¥${(item.value / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} (${item.percent}%)`;
-            },
-        },
-        legend: {
-            bottom: 0,
-            type: "scroll",
-            textStyle: { color: getChartTextColor() },
-        },
-        color: colors,
-        series: [
-            {
-                type: "pie",
-                radius: ["45%", "65%"],
-                center: ["50%", "45%"],
-                data: categoryShareData.value.map((item) => ({
-                    name:
-                        IncomeCategoryLabels[item.category as IncomeCategory] ||
-                        item.category,
-                    value: item.amount,
-                })),
-                label: { formatter: "{b}", color: getChartTextColor() },
             },
         ],
     };

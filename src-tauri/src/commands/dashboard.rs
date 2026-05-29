@@ -1,22 +1,24 @@
 use crate::db::DbState;
-use crate::models::{BookRanking, CategoryShare, DashboardStats, MonthlyIncome, MonthlySettlement};
+use crate::models::{BookRanking, DashboardStats, MonthlyIncome, MonthlySettlement};
 use chrono::Datelike;
 use tauri::State;
 
 #[tauri::command]
-pub async fn get_dashboard_stats(db: State<'_, DbState>, token: String) -> Result<DashboardStats, String> {
+pub async fn get_dashboard_stats(
+    db: State<'_, DbState>,
+    token: String,
+) -> Result<DashboardStats, String> {
     db.validate_token(&token).await?;
     let pool = db.get_pool().await?;
     let now = chrono::Local::now();
     let month_start = now.format("%Y-%m-01").to_string();
 
-    let current_month: (Option<i64>,) = sqlx::query_as(
-        "SELECT SUM(total_amount) FROM income_records WHERE date >= ?1",
-    )
-    .bind(&month_start)
-    .fetch_one(&pool)
-    .await
-    .map_err(|e| e.to_string())?;
+    let current_month: (Option<i64>,) =
+        sqlx::query_as("SELECT SUM(total_amount) FROM income_records WHERE date >= ?1")
+            .bind(&month_start)
+            .fetch_one(&pool)
+            .await
+            .map_err(|e| e.to_string())?;
 
     let total_unsettled: (Option<i64>,) = sqlx::query_as(
         "SELECT SUM(total_amount) FROM income_records WHERE settlement_status = 'unsettled'",
@@ -85,20 +87,6 @@ pub async fn get_dashboard_stats(db: State<'_, DbState>, token: String) -> Resul
     .await
     .map_err(|e| e.to_string())?;
 
-    let category_rows: Vec<(String, Option<i64>)> = sqlx::query_as(
-        r#"
-        SELECT category, SUM(total_amount)
-        FROM income_records
-        WHERE date >= ?1
-        GROUP BY category
-        ORDER BY SUM(total_amount) DESC
-        "#,
-    )
-    .bind(&month_start_12)
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
     let income_map: std::collections::HashMap<String, i64> = income_rows
         .into_iter()
         .map(|(month, amount)| (month, amount.unwrap_or(0)))
@@ -129,14 +117,6 @@ pub async fn get_dashboard_stats(db: State<'_, DbState>, token: String) -> Resul
         })
         .collect();
 
-    let category_share = category_rows
-        .into_iter()
-        .map(|(category, amount)| CategoryShare {
-            category,
-            amount: amount.unwrap_or(0),
-        })
-        .collect();
-
     Ok(DashboardStats {
         current_month_income: current_month.0.unwrap_or(0),
         total_unsettled: total_unsettled.0.unwrap_or(0),
@@ -152,7 +132,6 @@ pub async fn get_dashboard_stats(db: State<'_, DbState>, token: String) -> Resul
             .collect(),
         income_trend,
         settlement_trend,
-        category_share,
     })
 }
 
