@@ -24,6 +24,10 @@
           <el-icon><User /></el-icon>
           <span>用户管理</span>
         </el-menu-item>
+        <el-menu-item index="/backup-management">
+          <el-icon><Files /></el-icon>
+          <span>备份管理</span>
+        </el-menu-item>
         <el-menu-item index="/settings">
           <el-icon><Setting /></el-icon>
           <span>设置</span>
@@ -59,11 +63,44 @@
       </div>
     </aside>
     <main class="content">
-      <router-view v-slot="{ Component }">
-        <transition name="page-fade" mode="out-in">
-          <component :is="Component" />
-        </transition>
-      </router-view>
+      <header class="content-header">
+        <div class="header-title">
+          <el-breadcrumb separator="/">
+            <el-breadcrumb-item
+              v-for="(item, index) in breadcrumbs"
+              :key="item.path || item.title"
+              :to="index < breadcrumbs.length - 1 && item.path ? item.path : undefined"
+            >
+              {{ item.title }}
+            </el-breadcrumb-item>
+          </el-breadcrumb>
+          <h2>{{ pageTitle }}</h2>
+        </div>
+
+        <div v-if="pageHeaderStore.actions.length" class="header-actions">
+          <el-button
+            v-for="action in pageHeaderStore.actions"
+            :key="action.key"
+            :type="action.type || 'primary'"
+            :disabled="action.disabled"
+            :loading="action.loading"
+            @click="action.onClick"
+          >
+            <el-icon v-if="action.icon">
+              <component :is="action.icon" />
+            </el-icon>
+            {{ action.label }}
+          </el-button>
+        </div>
+      </header>
+
+      <section class="content-body">
+        <router-view v-slot="{ Component }">
+          <transition name="page-fade" mode="out-in">
+            <component :is="Component" />
+          </transition>
+        </router-view>
+      </section>
     </main>
   </div>
 </template>
@@ -73,23 +110,56 @@ import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
+import { usePageHeaderStore } from "@/stores/pageHeader";
 import logoUrl from "@/assets/finledger-logo.png";
 import {
   DataAnalysis,
   Notebook,
   User,
   Setting,
+  Files,
   Sunny,
   Moon,
   Monitor,
 } from "@element-plus/icons-vue";
 
+interface BreadcrumbItem {
+  title: string;
+  path?: string;
+}
+
 const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const themeStore = useThemeStore();
+const pageHeaderStore = usePageHeaderStore();
 
-const activeMenu = computed(() => route.path);
+const routeTitleMap: Record<string, BreadcrumbItem[]> = {
+  "/dashboard": [{ title: "首页看板" }],
+  "/books": [{ title: "账本管理" }],
+  "/users": [{ title: "用户管理" }],
+  "/backup-management": [{ title: "备份管理" }],
+  "/settings": [{ title: "设置" }],
+};
+
+const activeMenu = computed(() =>
+  route.path.startsWith("/books/") ? "/books" : route.path
+);
+
+const breadcrumbs = computed<BreadcrumbItem[]>(() => {
+  if (route.path.startsWith("/books/")) {
+    return [
+      { title: "账本管理", path: "/books" },
+      { title: String(route.meta.title || "账本详情") },
+    ];
+  }
+
+  return routeTitleMap[route.path] || [
+    { title: String(route.meta.title || "当前页面") },
+  ];
+});
+
+const pageTitle = computed(() => breadcrumbs.value[breadcrumbs.value.length - 1]?.title || "");
 
 function handleThemeChange(mode: string) {
   themeStore.setMode(mode as "light" | "dark" | "auto");
@@ -176,10 +246,71 @@ async function handleLogout() {
 }
 
 .content {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   height: 100%;
   background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.content-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-shrink: 0;
+  padding: 18px 24px 14px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+
+  .header-title {
+    min-width: 0;
+  }
+
+  :deep(.el-breadcrumb) {
+    margin-bottom: 8px;
+    font-size: 13px;
+  }
+
+  :deep(.el-breadcrumb__inner) {
+    color: var(--text-tertiary);
+    font-weight: 500;
+  }
+
+  :deep(.el-breadcrumb__inner.is-link) {
+    color: var(--text-secondary);
+    font-weight: 600;
+
+    &:hover {
+      color: var(--color-primary);
+    }
+  }
+
+  :deep(.el-breadcrumb__separator) {
+    color: var(--text-tertiary);
+  }
+
+  h2 {
+    margin: 0;
+    color: var(--text-heading);
+    font-size: 20px;
+    font-weight: 650;
+    line-height: 1.35;
+  }
+}
+
+.header-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+  align-items: center;
+}
+
+.content-body {
+  flex: 1;
+  min-height: 0;
   padding: 24px;
   overflow-y: auto;
   overflow-x: hidden;

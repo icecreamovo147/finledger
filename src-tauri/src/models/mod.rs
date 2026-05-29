@@ -120,4 +120,94 @@ pub struct BackupManifest {
     pub created_at: String,
     pub db_sha256: String,
     pub images_count: u32,
+    #[serde(default)]
+    pub backup_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupSettings {
+    pub enabled: bool,
+    pub target_dir: Option<String>,
+    pub frequency: String,
+    pub time_of_day: String,
+    #[serde(default)]
+    pub day_of_week: Option<u32>,
+    #[serde(default)]
+    pub day_of_month: Option<u32>,
+    #[serde(default)]
+    pub interval_minutes: Option<u32>,
+    pub retention_mode: String,
+    pub retention_count: u32,
+    pub retention_days: u32,
+    pub retention_size_mb: u64,
+}
+
+impl Default for BackupSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            target_dir: None,
+            frequency: "daily".into(),
+            time_of_day: "23:00".into(),
+            day_of_week: None,
+            day_of_month: None,
+            interval_minutes: None,
+            retention_mode: "count".into(),
+            retention_count: 10,
+            retention_days: 30,
+            retention_size_mb: 2048,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupRunState {
+    pub last_run_at: Option<String>,
+    pub last_success_at: Option<String>,
+    pub last_status: Option<String>,
+    pub last_message: Option<String>,
+    pub last_backup_path: Option<String>,
+    #[serde(default)]
+    pub last_auto_run_at: Option<String>,
+}
+
+impl Default for BackupRunState {
+    fn default() -> Self {
+        Self {
+            last_run_at: None,
+            last_success_at: None,
+            last_status: None,
+            last_message: None,
+            last_backup_path: None,
+            last_auto_run_at: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupFileInfo {
+    pub file_name: String,
+    pub path: String,
+    pub backup_type: String,
+    pub created_at: Option<String>,
+    pub size_bytes: u64,
+    pub format_version: Option<u32>,
+    pub images_count: Option<u32>,
+    pub is_valid: bool,
+    pub validation_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupOverview {
+    pub settings: BackupSettings,
+    pub total_count: usize,
+    pub auto_count: usize,
+    pub manual_count: usize,
+    pub unknown_count: usize,
+    pub total_size_bytes: u64,
+    pub oldest_backup_at: Option<String>,
+    pub latest_backup_at: Option<String>,
+    pub last_run_state: BackupRunState,
+    pub next_backup_at: Option<String>,
+    pub backups: Vec<BackupFileInfo>,
 }

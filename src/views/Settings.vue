@@ -1,16 +1,19 @@
 <template>
   <div class="settings">
-    <h2>设置</h2>
-
     <!-- Data Backup -->
     <div class="setting-section">
       <div class="section-header">
         <h3>数据备份</h3>
         <p class="section-desc">包含账本、记录、结清状态和附件图片，建议定期备份</p>
       </div>
-      <el-button type="primary" :loading="backingUp" @click="handleBackup">
-        <el-icon><Download /></el-icon>备份数据
-      </el-button>
+      <div class="backup-actions">
+        <el-button type="primary" :loading="backingUp" @click="handleBackup">
+          <el-icon><Download /></el-icon>备份数据
+        </el-button>
+        <el-button @click="router.push('/backup-management')">
+          <el-icon><Files /></el-icon>备份管理
+        </el-button>
+      </div>
     </div>
 
     <el-divider />
@@ -23,6 +26,8 @@
       </div>
       <el-popconfirm
         title="恢复备份将会覆盖当前所有数据，确定继续？"
+        :width="260"
+        popper-class="restore-popconfirm"
         confirm-button-text="确定恢复"
         cancel-button-text="取消"
         @confirm="handleRestore"
@@ -80,12 +85,14 @@
 
 <script setup lang="ts">
 import { ref } from "vue";
+import { useRouter } from "vue-router";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { Download, Upload, Sunny, Moon, Monitor } from "@element-plus/icons-vue";
+import { Download, Upload, Sunny, Moon, Monitor, Files } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 import { safeInvoke } from "@/utils/invoke";
 import { useThemeStore } from "@/stores/theme";
 
+const router = useRouter();
 const themeStore = useThemeStore();
 const backingUp = ref(false);
 const restoring = ref(false);
@@ -95,6 +102,9 @@ async function handleBackup() {
     const dir = await openDialog({
       title: "选择备份目录",
       directory: true,
+      multiple: false,
+      recursive: false,
+      canCreateDirectories: true,
     });
     if (!dir) return;
 
@@ -135,13 +145,6 @@ async function handleRestore() {
 </script>
 
 <style scoped lang="scss">
-.settings {
-  h2 {
-    font-size: 20px;
-    margin-bottom: 24px;
-  }
-}
-
 .setting-section {
   margin-bottom: 20px;
 
@@ -166,9 +169,26 @@ async function handleRestore() {
   line-height: 1.8;
 }
 
+.backup-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .system-hint {
   margin-top: 8px;
   font-size: 13px;
   color: var(--text-tertiary);
+}
+
+:global(.restore-popconfirm .el-popconfirm__action) {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+:global(.restore-popconfirm .el-popconfirm__action .el-button) {
+  flex: 0 0 auto;
+  margin-left: 0;
 }
 </style>

@@ -75,135 +75,8 @@ pub async fn backup_database(
     target_dir: String,
 ) -> Result<String, String> {
     db.validate_token(&token).await?;
-
     let _guard = db.maintenance_guard()?;
-
-    let pool = db.raw_pool().await;
-
-    let check: Vec<(String,)> = sqlx::query_as("PRAGMA integrity_check")
-        .fetch_all(&pool)
-        .await
-        .map_err(|e| e.to_string())?;
-    if !check.iter().all(|(v,)| v == "ok") {
-        return Err("数据库完整性检测异常，建议先修复再备份。请前往设置页恢复备份或检查数据库。".into());
-    }
-
-    sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
-        .execute(&pool)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let db_path = db.app_data_dir.join("finledger.db");
-    if !db_path.exists() {
-        return Err("数据库文件不存在".into());
-    }
-
-    // Create temp directory for assembling the backup
-    let tmp_id = uuid::Uuid::new_v4().to_string();
-    let tmp_dir = db.app_data_dir.join(format!(".backup-tmp-{}", tmp_id));
-    std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
-
-    // Copy db to temp dir
-    let tmp_db = tmp_dir.join("finledger.db");
-    std::fs::copy(&db_path, &tmp_db).map_err(|e| {
-        cleanup_dir(&tmp_dir);
-        format!("复制数据库失败: {}", e)
-    })?;
-
-    // Copy images to temp dir
-    let tmp_images = tmp_dir.join("images");
-    let images_count = if db.images_dir.exists() {
-        std::fs::create_dir_all(&tmp_images).map_err(|e| e.to_string())?;
-        copy_dir_recursive(&db.images_dir, &tmp_images).map_err(|e| {
-            cleanup_dir(&tmp_dir);
-            e
-        })?;
-        count_files_in_dir(&tmp_images)
-    } else {
-        std::fs::create_dir_all(&tmp_images).ok();
-        0
-    };
-
-    // Compute SHA-256 of the db copy
-    let db_sha256 = compute_sha256(&tmp_db).map_err(|e| {
-        cleanup_dir(&tmp_dir);
-        e
-    })?;
-
-    // Write manifest.json
-    let manifest = BackupManifest {
-        backup_format_version: 1,
-        app: "FinLedger".into(),
-        version: env!("CARGO_PKG_VERSION").into(),
-        created_at: chrono::Local::now()
-            .format("%Y-%m-%d %H:%M:%S")
-            .to_string(),
-        db_sha256,
-        images_count,
-    };
-    let manifest_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
-        cleanup_dir(&tmp_dir);
-        e.to_string()
-    })?;
-    let manifest_path = tmp_dir.join("manifest.json");
-    std::fs::write(&manifest_path, &manifest_json).map_err(|e| {
-        cleanup_dir(&tmp_dir);
-        format!("写入 manifest 失败: {}", e)
-    })?;
-
-    // Create zip archive
-    let filename = format!(
-        "finledger_backup_{}.flbackup",
-        chrono::Local::now().format("%Y%m%d_%H%M%S")
-    );
-    let zip_tmp_path = tmp_dir.join(&filename);
-    let zip_file = std::fs::File::create(&zip_tmp_path).map_err(|e| {
-        cleanup_dir(&tmp_dir);
-        format!("创建归档文件失败: {}", e)
-    })?;
-    let mut zip_writer = zip::ZipWriter::new(zip_file);
-
-    // Add finledger.db
-    zip_writer
-        .start_file("finledger.db", SimpleFileOptions::default())
-        .map_err(|e| e.to_string())?;
-    let mut db_file = std::fs::File::open(&tmp_db).map_err(|e| e.to_string())?;
-    std::io::copy(&mut db_file, &mut zip_writer).map_err(|e| e.to_string())?;
-
-    // Add images directory
-    if db.images_dir.exists() {
-        add_dir_to_zip(&mut zip_writer, &db.images_dir, "images").map_err(|e| {
-            cleanup_dir(&tmp_dir);
-            e
-        })?;
-    }
-
-    // Add manifest.json
-    zip_writer
-        .start_file("manifest.json", SimpleFileOptions::default())
-        .map_err(|e| e.to_string())?;
-    zip_writer
-        .write_all(manifest_json.as_bytes())
-        .map_err(|e| e.to_string())?;
-
-    zip_writer.finish().map_err(|e| {
-        cleanup_dir(&tmp_dir);
-        format!("完成归档失败: {}", e)
-    })?;
-
-    // Move to target directory
-    let target_path = Path::new(&target_dir).join(&filename);
-    if let Err(e) = std::fs::rename(&zip_tmp_path, &target_path) {
-        // Fallback: copy then delete if rename fails (cross-filesystem)
-        if let Err(copy_err) = std::fs::copy(&zip_tmp_path, &target_path) {
-            cleanup_dir(&tmp_dir);
-            return Err(format!("移动备份文件失败: rename={}, copy={}", e, copy_err));
-        }
-        std::fs::remove_file(&zip_tmp_path).ok();
-    }
-
-    cleanup_dir(&tmp_dir);
-    Ok(target_path.to_string_lossy().to_string())
+    do_backup_with_type(&db, &target_dir, "manual").await
 }
 
 #[tauri::command]
@@ -512,6 +385,10 @@ fn cleanup_dir(dir: &Path) {
 // ===== Public test-facing helpers (no Tauri State, no token) =====
 
 pub async fn do_backup(db: &DbState, target_dir: &str) -> Result<String, String> {
+    do_backup_with_type(db, target_dir, "manual").await
+}
+
+pub async fn do_backup_with_type(db: &DbState, target_dir: &str, backup_type: &str) -> Result<String, String> {
     let pool = db.raw_pool().await;
 
     let check: Vec<(String,)> = sqlx::query_as("PRAGMA integrity_check")
@@ -569,6 +446,7 @@ pub async fn do_backup(db: &DbState, target_dir: &str) -> Result<String, String>
             .to_string(),
         db_sha256,
         images_count,
+        backup_type: Some(backup_type.to_string()),
     };
     let manifest_json = serde_json::to_string_pretty(&manifest).map_err(|e| {
         cleanup_dir(&tmp_dir);
@@ -581,7 +459,8 @@ pub async fn do_backup(db: &DbState, target_dir: &str) -> Result<String, String>
     })?;
 
     let filename = format!(
-        "finledger_backup_{}.flbackup",
+        "finledger_{}_backup_{}.flbackup",
+        backup_type,
         chrono::Local::now().format("%Y%m%d_%H%M%S")
     );
     let zip_tmp_path = tmp_dir.join(&filename);

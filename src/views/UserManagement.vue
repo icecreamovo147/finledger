@@ -1,12 +1,5 @@
 <template>
   <div class="user-management">
-    <div class="page-header">
-      <h2>用户管理</h2>
-      <el-button type="primary" @click="showCreateDialog = true">
-        <el-icon><Plus /></el-icon>新增用户
-      </el-button>
-    </div>
-
     <el-table :data="users" border stripe v-loading="loading">
       <el-table-column prop="id" label="ID" width="80" />
       <el-table-column prop="username" label="用户名" />
@@ -99,8 +92,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from "vue";
+import { ref, reactive, onBeforeUnmount, onMounted } from "vue";
 import { useAuthStore } from "@/stores/auth";
+import { usePageHeaderStore } from "@/stores/pageHeader";
 import { ElMessage } from "element-plus";
 import { Plus } from "@element-plus/icons-vue";
 import type { FormInstance, FormRules } from "element-plus";
@@ -108,6 +102,7 @@ import type { User } from "@/types";
 import { safeInvoke } from "@/utils/invoke";
 
 const authStore = useAuthStore();
+const pageHeaderStore = usePageHeaderStore();
 const users = ref<User[]>([]);
 const loading = ref(false);
 
@@ -142,7 +137,22 @@ const pwdRules: FormRules = {
 };
 
 onMounted(() => {
+  pageHeaderStore.setActions([
+    {
+      key: "create-user",
+      label: "新增用户",
+      icon: Plus,
+      type: "primary",
+      onClick: () => {
+        showCreateDialog.value = true;
+      },
+    },
+  ]);
   fetchUsers();
+});
+
+onBeforeUnmount(() => {
+  pageHeaderStore.clearActions();
 });
 
 async function fetchUsers() {
@@ -218,17 +228,4 @@ async function handleChangePwd() {
 }
 </script>
 
-<style scoped lang="scss">
-.user-management {
-  .page-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 20px;
-
-    h2 {
-      font-size: 20px;
-    }
-  }
-}
-</style>
+<style scoped lang="scss"></style>

@@ -52,6 +52,12 @@ const router = createRouter({
           component: () => import("@/views/Settings.vue"),
           meta: { title: "设置" },
         },
+        {
+          path: "backup-management",
+          name: "BackupManagement",
+          component: () => import("@/views/BackupManagement.vue"),
+          meta: { title: "备份管理" },
+        },
       ],
     },
   ],

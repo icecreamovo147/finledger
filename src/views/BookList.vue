@@ -1,12 +1,5 @@
 <template>
   <div class="book-list">
-    <div class="page-header">
-      <h2>账本管理</h2>
-      <el-button type="primary" @click="openCreate">
-        <el-icon><Plus /></el-icon>新增账本
-      </el-button>
-    </div>
-
     <div v-loading="loading" class="book-grid">
       <el-empty v-if="!loading && books.length === 0" description="暂无账本，点击上方按钮创建" />
       <div
@@ -88,15 +81,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from "vue";
+import { ref, reactive, onBeforeUnmount, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { Plus } from "@element-plus/icons-vue";
 import type { FormInstance, FormRules } from "element-plus";
 import type { AccountBook, PaginatedBooks } from "@/types";
 import { safeInvoke } from "@/utils/invoke";
+import { usePageHeaderStore } from "@/stores/pageHeader";
 
 const router = useRouter();
+const pageHeaderStore = usePageHeaderStore();
 const books = ref<AccountBook[]>([]);
 const loading = ref(false);
 const total = ref(0);
@@ -113,7 +108,22 @@ const rules: FormRules = {
   name: [{ required: true, message: "请输入账本名称", trigger: "blur" }],
 };
 
-onMounted(() => fetchBooks());
+onMounted(() => {
+  pageHeaderStore.setActions([
+    {
+      key: "create-book",
+      label: "新增账本",
+      icon: Plus,
+      type: "primary",
+      onClick: openCreate,
+    },
+  ]);
+  fetchBooks();
+});
+
+onBeforeUnmount(() => {
+  pageHeaderStore.clearActions();
+});
 
 async function fetchBooks() {
   loading.value = true;
@@ -199,16 +209,6 @@ function formatAmount(val: number): string {
   display: flex;
   flex-direction: column;
   height: 100%;
-
-  .page-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 24px;
-    flex-shrink: 0;
-
-    h2 { font-size: 20px; }
-  }
 }
 
 .book-grid {

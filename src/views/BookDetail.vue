@@ -3,10 +3,10 @@
     <!-- Header -->
     <div class="page-header">
       <div class="header-left">
-        <el-button text @click="router.push('/books')">
+        <el-button class="back-btn" text @click="router.push('/books')">
           <el-icon><ArrowLeft /></el-icon>
         </el-button>
-        <h2>{{ bookName }}</h2>
+        <span class="current-book-name">{{ bookName || "当前账本" }}</span>
       </div>
       <div class="header-right">
         <el-button
@@ -456,7 +456,7 @@ import { useRoute, useRouter } from "vue-router";
 import { save } from "@tauri-apps/plugin-dialog";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { FormInstance, FormRules } from "element-plus";
-import type { IncomeRecord, IncomeImage, IncomeCategory, PaginatedRecords } from "@/types";
+import type { AccountBook, IncomeRecord, IncomeImage, IncomeCategory, PaginatedRecords } from "@/types";
 import { Plus, Delete, ArrowLeft } from "@element-plus/icons-vue";
 import { IncomeCategoryLabels, PaymentMethods } from "@/types";
 import { safeInvoke } from "@/utils/invoke";
@@ -503,9 +503,8 @@ onMounted(async () => {
 
 async function fetchBookName() {
   try {
-    const books = await safeInvoke<any[]>("list_books");
-    const book = books.find((b: any) => b.id === bookId);
-    if (book) bookName.value = book.name;
+    const book = await safeInvoke<AccountBook>("get_book", { id: bookId });
+    bookName.value = book.name;
   } catch { /* ignore */ }
 }
 
@@ -915,8 +914,26 @@ async function viewDetail(record: IncomeRecord) {
     .header-left {
       display: flex;
       align-items: center;
-      gap: 8px;
-      h2 { font-size: 20px; }
+      min-width: 0;
+      gap: 10px;
+
+      .back-btn {
+        flex-shrink: 0;
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+      }
+
+      .current-book-name {
+        min-width: 0;
+        color: var(--text-heading);
+        font-size: 18px;
+        font-weight: 650;
+        line-height: 1.4;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
     }
 
     .header-right {

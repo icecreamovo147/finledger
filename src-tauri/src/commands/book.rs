@@ -100,6 +100,43 @@ pub async fn list_books(
 }
 
 #[tauri::command]
+pub async fn get_book(db: State<'_, DbState>, token: String, id: i64) -> Result<AccountBook, String> {
+    db.validate_token(&token).await?;
+    let pool = db.get_pool().await?;
+
+    let book: Option<(i64, String, String, String, String, Option<i64>, Option<i64>)> =
+        sqlx::query_as(
+            r#"
+            SELECT
+                b.id, b.name, b.remark, b.created_at, b.updated_at,
+                COALESCE(SUM(CASE WHEN r.settlement_status = 'unsettled' THEN r.total_amount ELSE 0 END), 0) as total_unsettled,
+                COUNT(r.id) as record_count
+            FROM account_books b
+            LEFT JOIN income_records r ON r.book_id = b.id
+            WHERE b.id = ?1
+            GROUP BY b.id
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    book.map(
+        |(id, name, remark, created_at, updated_at, total_unsettled, record_count)| AccountBook {
+            id,
+            name,
+            remark,
+            created_at,
+            updated_at,
+            total_unsettled,
+            record_count,
+        },
+    )
+    .ok_or_else(|| "账本不存在".into())
+}
+
+#[tauri::command]
 pub async fn update_book(
     db: State<'_, DbState>,
     token: String,

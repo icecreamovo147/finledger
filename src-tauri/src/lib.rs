@@ -2,6 +2,7 @@ pub mod commands;
 pub mod db;
 pub mod models;
 
+use commands::backup_scheduler::BackupSchedulerState;
 use db::{sqlite_options, DbState};
 use sqlx::sqlite::SqlitePoolOptions;
 use std::collections::HashMap;
@@ -14,6 +15,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(LoginAttempts(Mutex::new(HashMap::new())))
+        .manage(BackupSchedulerState::new())
         .setup(|app| {
             let app_dir = app
                 .path()
@@ -51,7 +53,16 @@ pub fn run() {
                 }
             });
 
+            // Start backup scheduler if configured
+            let backup_settings = commands::backup_settings::get_backup_settings_sync(&db);
+            let db_for_scheduler = db.clone();
             app.manage(db);
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let scheduler = app_handle.state::<BackupSchedulerState>();
+                scheduler.restart(&db_for_scheduler, backup_settings).await;
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -68,6 +79,7 @@ pub fn run() {
             commands::auth::change_password,
             commands::book::create_book,
             commands::book::list_books,
+            commands::book::get_book,
             commands::book::update_book,
             commands::book::delete_book,
             commands::record::create_record,
@@ -89,6 +101,12 @@ pub fn run() {
             commands::dashboard::get_dashboard_stats,
             commands::backup::backup_database,
             commands::backup::restore_database,
+            commands::backup_settings::get_backup_settings,
+            commands::backup_settings::update_backup_settings,
+            commands::backup_settings::get_backup_overview,
+            commands::backup_settings::run_backup_now,
+            commands::backup_settings::restore_backup,
+            commands::backup_settings::delete_backup_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

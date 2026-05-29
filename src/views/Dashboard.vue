@@ -1,7 +1,5 @@
 <template>
   <div class="dashboard">
-    <h2>首页看板</h2>
-
     <!-- Stat Cards -->
     <div class="stat-cards">
       <div class="stat-card income">
@@ -346,13 +344,6 @@ onMounted(async () => {
 </script>
 
 <style scoped lang="scss">
-.dashboard {
-  h2 {
-    font-size: 20px;
-    margin-bottom: 24px;
-  }
-}
-
 .stat-cards {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

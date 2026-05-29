@@ -125,3 +125,53 @@ export interface RecordFilter {
   date_to?: string;
   keyword?: string;
 }
+
+// 备份管理
+export interface BackupSettings {
+  enabled: boolean;
+  target_dir: string | null;
+  frequency: string;
+  time_of_day: string;
+  day_of_week: number | null;
+  day_of_month: number | null;
+  interval_minutes: number | null;
+  retention_mode: string;
+  retention_count: number;
+  retention_days: number;
+  retention_size_mb: number;
+}
+
+export interface BackupFileInfo {
+  file_name: string;
+  path: string;
+  backup_type: "auto" | "manual" | "unknown";
+  created_at: string | null;
+  size_bytes: number;
+  format_version: number | null;
+  images_count: number | null;
+  is_valid: boolean;
+  validation_message: string | null;
+}
+
+export interface BackupRunState {
+  last_run_at: string | null;
+  last_success_at: string | null;
+  last_status: string | null;
+  last_message: string | null;
+  last_backup_path: string | null;
+  last_auto_run_at: string | null;
+}
+
+export interface BackupOverview {
+  settings: BackupSettings;
+  total_count: number;
+  auto_count: number;
+  manual_count: number;
+  unknown_count: number;
+  total_size_bytes: number;
+  oldest_backup_at: string | null;
+  latest_backup_at: string | null;
+  last_run_state: BackupRunState;
+  next_backup_at: string | null;
+  backups: BackupFileInfo[];
+}
