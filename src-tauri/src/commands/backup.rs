@@ -1,6 +1,7 @@
 use crate::db::{sqlite_options, DbState};
 use crate::models::BackupManifest;
 use sha2::{Digest, Sha256};
+use tracing::{error, info, warn};
 use sqlx::sqlite::SqlitePoolOptions;
 use std::io::{Read as IoRead, Write};
 use std::path::Path;
@@ -63,7 +64,7 @@ fn add_dir_to_zip(
                 .canonicalize()
                 .map_err(|e| format!("无法解析子目录: {}", e))?;
             if !canonical_sub.starts_with(&canonical_base) {
-                eprintln!("警告: 跳过不在备份目录内的目录: {}", canonical_sub.display());
+                warn!("警告: 跳过不在备份目录内的目录: {}", canonical_sub.display());
                 continue;
             }
             count += add_dir_to_zip(zip, &path, &zip_path)?;
@@ -73,7 +74,7 @@ fn add_dir_to_zip(
                 .canonicalize()
                 .map_err(|e| format!("无法解析文件路径: {}", e))?;
             if !canonical_path.starts_with(&canonical_base) {
-                eprintln!("警告: 跳过不在备份目录内的文件: {}", canonical_path.display());
+                warn!("警告: 跳过不在备份目录内的文件: {}", canonical_path.display());
                 continue;
             }
             zip.start_file(&zip_path, SimpleFileOptions::default())
@@ -216,6 +217,7 @@ async fn restore_db_and_images(
     let wal_path = db_path.with_extension("db-wal");
     let shm_path = db_path.with_extension("db-shm");
 
+    info!("开始恢复数据库 from={}", new_db_path.display());
     // Back up current DB for rollback
     let backup_current = db_path.with_extension("db.pre-restore");
     let backup_wal = wal_path.with_extension("db-wal.pre-restore");
@@ -447,6 +449,7 @@ async fn restore_db_and_images(
         return Err(format!("恢复后迁移失败，已回滚: {}", e));
     }
 
+    info!("数据库恢复成功");
     // Clean up rollback files only on success
     std::fs::remove_file(&backup_current).ok();
     std::fs::remove_file(&backup_wal).ok();
@@ -471,7 +474,7 @@ async fn rollback_all(
 ) {
     // Rollback database
     if let Err(e) = std::fs::copy(backup_current, db_path) {
-        eprintln!("回滚: 恢复数据库文件失败: {}", e);
+        error!("回滚: 恢复数据库文件失败: {}", e);
     }
     if backup_wal.exists() {
         std::fs::copy(backup_wal, wal_path).ok();
@@ -489,7 +492,7 @@ async fn rollback_all(
             std::fs::remove_dir_all(&db.images_dir).ok();
         }
         if let Err(e) = copy_dir_recursive(backup_images_dir, &db.images_dir) {
-            eprintln!("回滚: 恢复图片目录失败: {}", e);
+            error!("回滚: 恢复图片目录失败: {}", e);
         }
         std::fs::remove_dir_all(backup_images_dir).ok();
     }
@@ -502,7 +505,7 @@ async fn rollback_all(
     {
         db.replace_pool(rollback_pool).await;
     } else {
-        eprintln!("回滚: 重建连接池失败");
+        error!("回滚: 重建连接池失败");
     }
 }
 
@@ -582,6 +585,7 @@ pub async fn do_backup_with_type(
         .execute(&pool)
         .await
         .map_err(|e| e.to_string())?;
+    info!("开始备份 type={} target={}", backup_type, target_dir);
 
     let db_path = db.app_data_dir.join("finledger.db");
     if !db_path.exists() {
@@ -683,6 +687,7 @@ pub async fn do_backup_with_type(
     }
 
     cleanup_dir(&tmp_dir);
+    info!("备份完成: {}", target_path.display());
     Ok(target_path.to_string_lossy().to_string())
 }
 

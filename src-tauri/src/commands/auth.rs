@@ -2,6 +2,7 @@ use crate::db::DbState;
 use crate::models::{LoginResult, User};
 use chrono::{Duration, Utc};
 use tauri::State;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 // ===== Internal helpers (take &DbState, testable without Tauri) =====
@@ -22,6 +23,7 @@ pub async fn do_init_admin(db: &DbState, username: &str, password: &str) -> Resu
         .execute(&pool)
         .await
         .map_err(|e| e.to_string())?;
+    info!("管理员账号已创建: {}", username.trim());
     Ok(())
 }
 
@@ -168,12 +170,14 @@ pub async fn login(
     let (user_id, password_hash) = match row {
         Some(r) => r,
         None => {
+            warn!("登录失败: 用户 {} 不存在", username);
             record_failed_attempt(&login_attempts, &username);
             return Err("用户名或密码错误".into());
         }
     };
 
     if !bcrypt::verify(password.as_bytes(), &password_hash).unwrap_or(false) {
+        warn!("登录失败: 用户 {} 密码错误", username);
         record_failed_attempt(&login_attempts, &username);
         return Err("用户名或密码错误".into());
     }
@@ -197,6 +201,8 @@ pub async fn login(
         .await
         .map_err(|e| e.to_string())?;
 
+    info!("用户 {} 登录成功 (remember={})", username, remember);
+
     Ok(LoginResult {
         user: User {
             id: user_id,
@@ -213,18 +219,20 @@ fn record_failed_attempt(attempts: &crate::LoginAttempts, username: &str) {
     entry.0 += 1;
     if entry.0 >= 5 {
         entry.1 = Utc::now() + Duration::minutes(15);
+        warn!("用户 {} 登录尝试失败 {} 次，已锁定 15 分钟", username, entry.0);
     }
 }
 
 #[tauri::command]
 pub async fn logout(db: State<'_, DbState>, token: String) -> Result<(), String> {
-    db.validate_token(&token).await?;
+    let user_id = db.validate_token(&token).await?;
     let pool = db.get_pool().await?;
     sqlx::query("DELETE FROM sessions WHERE token = ?1")
         .bind(&token)
         .execute(&pool)
         .await
         .map_err(|e| e.to_string())?;
+    info!("用户 {} 已登出", user_id);
     Ok(())
 }
 

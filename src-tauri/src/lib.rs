@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod db;
+pub mod logger;
 pub mod models;
 pub mod utils;
 
@@ -80,6 +81,9 @@ pub fn run() {
             std::fs::create_dir_all(&app_dir).ok();
             std::fs::create_dir_all(app_dir.join("images")).ok();
 
+            logger::init(&app_dir);
+            tracing::info!(target: "finledger", "FinLedger 启动，数据目录: {}", app_dir.display());
+
             let db_path = app_dir.join("finledger.db");
 
             let pool = tauri::async_runtime::block_on(async {
@@ -117,9 +121,11 @@ pub fn run() {
 
             let db = DbState::new(pool, app_dir);
             tauri::async_runtime::block_on(async {
+                tracing::info!(target: "finledger", "开始数据库迁移...");
                 db.run_migrations().await.expect("failed to run migrations");
+                tracing::info!(target: "finledger", "数据库迁移完成");
                 if let Some(err) = db.check_integrity().await {
-                    eprintln!("{}", err);
+                    tracing::error!(target: "finledger", "数据库完整性检测异常: {}", err);
                 }
             });
 
@@ -131,6 +137,7 @@ pub fn run() {
             tauri::async_runtime::spawn(async move {
                 let scheduler = app_handle.state::<BackupSchedulerState>();
                 scheduler.restart(&db_for_scheduler, backup_settings).await;
+                tracing::info!(target: "finledger", "备份调度器已启动");
             });
 
             let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))

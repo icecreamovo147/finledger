@@ -4,6 +4,7 @@ use crate::utils::escape_like;
 use base64::Engine;
 use std::path::{Path, PathBuf};
 use tauri::State;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 const IMAGE_SIZE_LIMIT: usize = 20 * 1024 * 1024;
@@ -442,7 +443,7 @@ pub async fn do_delete_record(db: &DbState, id: i64) -> Result<(), String> {
     for (path,) in &images {
         if let Ok(full_path) = resolve_image_path(db, path) {
             if let Err(e) = std::fs::remove_file(&full_path) {
-                eprintln!("警告: 无法删除图片文件 {}: {}", full_path.display(), e);
+                warn!("警告: 无法删除图片文件 {}: {}", full_path.display(), e);
             }
         }
     }
@@ -494,6 +495,8 @@ pub async fn create_record(
     .await
     .map_err(|e| e.to_string())?
     .last_insert_rowid();
+
+    info!("创建记录 id={} book={} amount={} date={}", id, book_id, total_amount, date);
 
     Ok(IncomeRecord {
         id,
@@ -694,7 +697,7 @@ pub async fn delete_image(db: State<'_, DbState>, token: String, id: i64) -> Res
 
     // After commit, delete the file (best-effort)
     if let Err(e) = std::fs::remove_file(&full_path) {
-        eprintln!("警告: 无法删除图片文件 {}: {}", full_path.display(), e);
+        warn!("警告: 无法删除图片文件 {}: {}", full_path.display(), e);
     }
 
     Ok(())
@@ -747,8 +750,10 @@ pub async fn settle_record(
     .map_err(|e| e.to_string())?;
 
     if result.rows_affected() == 0 {
+        warn!("结清操作冲突: 记录 {} 状态已变更", id);
         return Err("该记录状态已变更，请刷新后重试".into());
     }
+    info!("记录 {} 已标记为结清 payment_date={} method={}", id, payment_date, payment_method);
 
     Ok(())
 }
@@ -784,8 +789,10 @@ pub async fn unsettle_record(db: State<'_, DbState>, token: String, id: i64) -> 
     .map_err(|e| e.to_string())?;
 
     if result.rows_affected() == 0 {
+        warn!("回退操作冲突: 记录 {} 状态已变更", id);
         return Err("该记录状态已变更，请刷新后重试".into());
     }
+    info!("记录 {} 已回退为未结清", id);
 
     Ok(())
 }
@@ -1030,6 +1037,7 @@ pub async fn cancel_image_staging_session(
 /// Remove staging session directories older than 24 hours on startup.
 pub fn cleanup_stale_staging_sessions(app_data_dir: &Path) {
     let staging = app_data_dir.join("temp-images");
+    info!("清理过期暂存文件 (目录: {})", staging.display());
     let entries = match std::fs::read_dir(&staging) {
         Ok(e) => e,
         Err(_) => return,
@@ -1048,7 +1056,7 @@ pub fn cleanup_stale_staging_sessions(app_data_dir: &Path) {
             if let Ok(modified) = metadata.modified() {
                 if modified < cutoff {
                     if let Err(e) = std::fs::remove_dir_all(&path) {
-                        eprintln!("警告: 无法清理过期暂存目录 {}: {}", path.display(), e);
+                        warn!("警告: 无法清理过期暂存目录 {}: {}", path.display(), e);
                     }
                 }
             }
@@ -1166,6 +1174,8 @@ pub async fn create_record_with_staged_images(
         e.to_string()
     })?
     .last_insert_rowid();
+
+    info!("创建记录 id={} book={} amount={} date={} images={}", record_id, book_id, total_amount, date, copied.len());
 
     let mut saved_images: Vec<IncomeImage> = Vec::new();
     for (relative_path, _dest_path, original_name) in &copied {

@@ -1,4 +1,5 @@
 use crate::commands::record::resolve_image_path;
+use tracing::warn;
 use crate::db::DbState;
 use crate::models::{AccountBook, PaginatedBooks};
 use crate::utils::escape_like;
@@ -259,7 +260,7 @@ pub async fn delete_book(db: State<'_, DbState>, token: String, id: i64) -> Resu
     for (path,) in &images {
         if let Ok(full_path) = resolve_image_path(&db, path) {
             if let Err(e) = std::fs::remove_file(&full_path) {
-                eprintln!("警告: 无法删除图片文件 {}: {}", full_path.display(), e);
+                warn!("警告: 无法删除图片文件 {}: {}", full_path.display(), e);
             }
         }
     }

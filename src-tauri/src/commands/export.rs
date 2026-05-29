@@ -1,4 +1,5 @@
 use crate::db::DbState;
+use tracing::info;
 use rust_xlsxwriter::{Format, FormatAlign, Image, Workbook};
 use tauri::State;
 
@@ -245,6 +246,7 @@ pub async fn do_export_excel(
     let mut workbook = Workbook::new();
     write_export_sheet(db, &mut workbook, &rows, &pool).await?;
     workbook.save(save_path).map_err(|e| e.to_string())?;
+    info!("导出完成: {} 条记录 -> {}", rows.len(), save_path);
     Ok(save_path.to_string())
 }
 

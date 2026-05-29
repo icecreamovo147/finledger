@@ -2,6 +2,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
 use sqlx::Acquire;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use tracing::{error, info, warn};
 
 pub fn sqlite_options(path: &Path) -> SqliteConnectOptions {
     SqliteConnectOptions::new()
@@ -53,6 +54,7 @@ impl<'a> MaintenanceGuard<'a> {
 impl<'a> Drop for MaintenanceGuard<'a> {
     fn drop(&mut self) {
         if self.acquired {
+            info!("释放维护锁");
             self.state.end_maintenance();
         }
     }
@@ -88,6 +90,7 @@ impl DbState {
             Ok(rows) if rows.iter().all(|(v,)| v == "ok") => {
                 let mut err = self.integrity_error.lock().await;
                 *err = None;
+                info!("数据库完整性检测通过");
                 None
             }
             Ok(rows) => {
@@ -161,6 +164,8 @@ impl DbState {
             .await?;
         let applied_versions: HashSet<i32> = applied.into_iter().map(|(v,)| v).collect();
 
+        info!("已应用的迁移版本: {:?}", applied_versions);
+
         // Pre-migration backup for databases with existing data
         let db_path = self.app_data_dir.join("finledger.db");
         let pre_migration_path = self.app_data_dir.join("finledger.db.pre-migration");
@@ -171,6 +176,7 @@ impl DbState {
                 .0
                 > 0;
         if has_existing_data && db_path.exists() {
+            info!("检测到已有数据，创建迁移前备份: {}", pre_migration_path.display());
             std::fs::copy(&db_path, &pre_migration_path).ok();
         }
 
@@ -291,6 +297,7 @@ impl DbState {
                     .execute(&mut *tx)
                     .await?;
                 tx.commit().await?;
+                info!("迁移 8 (create_indices) 已应用");
                 continue;
             }
 
@@ -316,6 +323,7 @@ impl DbState {
                 .execute(&mut *tx)
                 .await?;
             tx.commit().await?;
+            info!("迁移 {} ({}) 已应用", version, name);
         }
 
         // Version 7: REAL -> INTEGER money migration (special handling)
@@ -329,6 +337,7 @@ impl DbState {
             let needs_money_migration = col_type.as_ref().map_or(false, |(t,)| t == "REAL");
 
             if needs_money_migration {
+                info!("迁移 7: REAL → INTEGER 金额转换开始");
                 let mut tx = pool.begin().await?;
                 sqlx::query(
                     "ALTER TABLE income_records RENAME COLUMN unit_price TO unit_price_real",
@@ -366,11 +375,13 @@ impl DbState {
                     .execute(&mut *tx)
                     .await?;
                 tx.commit().await?;
+                info!("迁移 7 (REAL→INTEGER 金额转换) 已应用");
             } else {
                 // Already INTEGER columns, just mark migration as done
                 sqlx::query("INSERT INTO schema_migrations (version, name) VALUES (7, 'convert_money_to_integer')")
                     .execute(&pool)
                     .await?;
+                info!("迁移 7 跳过: 列已是 INTEGER 类型");
             }
         }
 
@@ -394,6 +405,7 @@ impl DbState {
             // leftovers — rebuilding when they're present would overwrite
             // existing service_content with description data.
             if !has_service_fields {
+                info!("迁移 9: 表结构重构 (category/description → service_content/specification)");
                 // Prevent other connections from accessing the database while
                 // we rebuild the table with foreign_keys disabled.
                 // If the guard is held by a concurrent backup, skip this run
@@ -489,17 +501,19 @@ impl DbState {
                         .await?;
                     migration_result?;
                 } else {
-                    eprintln!("迁移 9: 无法获取维护锁，将在下次启动重试");
+                    warn!("迁移 9: 无法获取维护锁，将在下次启动重试");
                 }
             } else {
                 sqlx::query("INSERT INTO schema_migrations (version, name) VALUES (9, 'replace_record_service_fields')")
                     .execute(&pool)
                     .await?;
+                info!("迁移 9 跳过: service_content/specification 列已存在");
             }
         }
 
         // Version 10: unique constraint on account_books.name
         if !applied_versions.contains(&10) {
+            info!("迁移 10: 添加账本名称唯一约束");
             let mut tx = pool.begin().await?;
 
             // First, deduplicate existing books so the unique index can be created.
@@ -511,6 +525,7 @@ impl DbState {
             .await?;
 
             for (dup_name, _dup_count) in &dup_rows {
+                warn!("迁移 10: 发现重复账本名称 \"{}\"，将重命名旧记录", dup_name);
                 let dup_records: Vec<(i64, String)> = sqlx::query_as(
                     "SELECT id, name FROM account_books WHERE name = ?1 ORDER BY id ASC",
                 )
@@ -541,11 +556,13 @@ impl DbState {
             .execute(&mut *tx)
             .await?;
             tx.commit().await?;
+            info!("迁移 10 (unique_book_names) 已应用");
         }
 
         // Version 11: add CHECK constraints to income_records via triggers
         // (SQLite does not support ALTER TABLE ADD CHECK)
         if !applied_versions.contains(&11) {
+            info!("迁移 11: 添加 CHECK 约束触发器");
             let mut tx = pool.begin().await?;
             // Enforce settlement_status IN ('unsettled', 'settled') via triggers
             sqlx::query(
@@ -595,11 +612,12 @@ impl DbState {
             .execute(&mut *tx)
             .await?;
             tx.commit().await?;
+            info!("迁移 11 (add_check_constraints) 已应用");
         }
 
         // Post-migration integrity check
         if let Some(err) = self.check_integrity().await {
-            eprintln!("迁移后完整性检测异常: {}", err);
+            error!("迁移后完整性检测异常: {}", err);
         }
 
         // Clean up pre-migration backup on success
