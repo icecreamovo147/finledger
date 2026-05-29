@@ -214,10 +214,7 @@ async function handleRestore() {
 
 .theme-mode-group {
   display: inline-flex;
-  gap: 6px;
-  padding: 4px;
-  border-radius: 12px;
-  background: var(--card-bg-subtle);
+  gap: 8px;
 
   :deep(.el-radio-button__inner) {
     display: inline-flex;
@@ -232,7 +229,7 @@ async function handleRestore() {
     font-weight: 700;
     line-height: 1;
     border: 0;
-    border-radius: 9px;
+    border-radius: 8px;
     background: transparent;
     box-shadow: none;
     transition: background-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
@@ -245,7 +242,7 @@ async function handleRestore() {
 
   :deep(.el-radio-button:first-child .el-radio-button__inner),
   :deep(.el-radio-button:last-child .el-radio-button__inner) {
-    border-radius: 9px;
+    border-radius: 8px;
   }
 
   :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {

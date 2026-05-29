@@ -56,7 +56,8 @@ html, body, #app {
   --page-glow: radial-gradient(circle at 18% 10%, rgba(37, 99, 235, 0.08), transparent 30%),
                radial-gradient(circle at 86% 0%, rgba(5, 150, 105, 0.08), transparent 28%);
   --login-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #6B8DD6 100%);
-  --chart-color-1: #409eff;
+  --el-color-primary: var(--color-primary);
+  --chart-color-1: var(--color-primary);
   --chart-color-2: #67c23a;
   --chart-color-3: #f56c6c;
   --chart-color-4: #e6a23c;
@@ -102,7 +103,8 @@ html.dark {
   --page-glow: radial-gradient(circle at 14% 8%, rgba(37, 99, 235, 0.18), transparent 32%),
                radial-gradient(circle at 90% 0%, rgba(20, 184, 166, 0.12), transparent 30%);
   --login-gradient: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-  --chart-color-1: #66b1ff;
+  --el-color-primary: var(--color-primary);
+  --chart-color-1: var(--color-primary);
   --chart-color-2: #85ce61;
   --chart-color-3: #f78989;
   --chart-color-4: #ebb563;
@@ -138,6 +140,7 @@ body, #app {
   padding: 0 18px;
   font-size: 15px;
   font-weight: 600;
+  border-radius: 8px;
 }
 
 .el-button--small {
@@ -183,6 +186,43 @@ body, #app {
 .el-table th.el-table__cell,
 .el-table td.el-table__cell {
   padding: 12px 0;
+}
+
+.el-table--enable-row-transition .el-table__body td.el-table__cell {
+  transition: none;
+}
+
+// 固定列背景必须完全不透明。
+// Element Plus 的固定列使用 sticky 单元格叠在滚动内容上，默认 background: inherit。
+// hover 时应用的 var(--hover-bg) 是半透明色，会透过下方滚动的主表格内容。
+// 对策：hover 时用 background 简写叠加两层 gradient：
+//   底层 = 实色 card-bg，上层 = 半透明 hover-bg，结果完全不透明且视觉效果一致。
+.el-table__body td.el-table__cell.el-table-fixed-column--left,
+.el-table__body td.el-table__cell.el-table-fixed-column--right {
+  background: linear-gradient(var(--card-bg), var(--card-bg));
+}
+
+.el-table__body tr.el-table__row--striped td.el-table__cell.el-table-fixed-column--left,
+.el-table__body tr.el-table__row--striped td.el-table__cell.el-table-fixed-column--right {
+  background: linear-gradient(var(--card-bg-subtle), var(--card-bg-subtle));
+}
+
+.el-table__body tr:hover > td.el-table__cell.el-table-fixed-column--left,
+.el-table__body tr:hover > td.el-table__cell.el-table-fixed-column--right,
+.el-table__body tr.hover-row > td.el-table__cell.el-table-fixed-column--left,
+.el-table__body tr.hover-row > td.el-table__cell.el-table-fixed-column--right {
+  background:
+    linear-gradient(var(--hover-bg), var(--hover-bg)),
+    linear-gradient(var(--card-bg), var(--card-bg));
+}
+
+.el-table__body tr.el-table__row--striped:hover > td.el-table__cell.el-table-fixed-column--left,
+.el-table__body tr.el-table__row--striped:hover > td.el-table__cell.el-table-fixed-column--right,
+.el-table__body tr.el-table__row--striped.hover-row > td.el-table__cell.el-table-fixed-column--left,
+.el-table__body tr.el-table__row--striped.hover-row > td.el-table__cell.el-table-fixed-column--right {
+  background:
+    linear-gradient(var(--hover-bg), var(--hover-bg)),
+    linear-gradient(var(--card-bg-subtle), var(--card-bg-subtle));
 }
 
 .el-form-item__label {

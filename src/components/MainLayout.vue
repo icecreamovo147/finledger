@@ -105,6 +105,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { useAuthStore } from "@/stores/auth";
 import { useThemeStore } from "@/stores/theme";
 import { usePageHeaderStore } from "@/stores/pageHeader";
@@ -167,7 +168,17 @@ function handleThemeCycle() {
 }
 
 async function handleLogout() {
+  try {
+    await ElMessageBox.confirm("确定要退出登录吗？", "提示", {
+      confirmButtonText: "退出",
+      cancelButtonText: "取消",
+      type: "warning",
+    });
+  } catch {
+    return; // 用户取消
+  }
   await authStore.logout();
+  ElMessage.success("已退出登录");
   router.push("/login");
 }
 </script>

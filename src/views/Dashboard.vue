@@ -543,6 +543,8 @@ onMounted(async () => {
 }
 
 .range-switch {
+  display: inline-flex;
+  gap: 8px;
   padding: 4px;
   border: 1px solid transparent;
   border-radius: 12px;
@@ -558,7 +560,7 @@ onMounted(async () => {
     font-weight: 700;
     line-height: 40px;
     border: 0;
-    border-radius: 9px;
+    border-radius: 8px;
     background: transparent;
     box-shadow: none;
     transition: background-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
@@ -566,7 +568,7 @@ onMounted(async () => {
 
   :deep(.el-radio-button:first-child .el-radio-button__inner),
   :deep(.el-radio-button:last-child .el-radio-button__inner) {
-    border-radius: 9px;
+    border-radius: 8px;
   }
 
   :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
