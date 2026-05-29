@@ -1,4 +1,5 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool};
+use sqlx::Acquire;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -59,7 +60,11 @@ impl<'a> Drop for MaintenanceGuard<'a> {
 
 impl DbState {
     pub fn new(pool: SqlitePool, app_data_dir: PathBuf) -> Self {
-        let images_dir = app_data_dir.join("images");
+        let raw_dir = app_data_dir.join("images");
+        // Canonicalize to resolve symlinks (e.g. macOS /var → /private/var).
+        // If the directory doesn't exist yet, canonicalize fails — fall back to
+        // the raw path; downstream boundary checks canonicalize both sides.
+        let images_dir = raw_dir.canonicalize().unwrap_or(raw_dir);
         Self {
             pool: Arc::new(Mutex::new(pool)),
             maintenance: Arc::new(AtomicBool::new(false)),
@@ -75,10 +80,9 @@ impl DbState {
 
     pub async fn check_integrity(&self) -> Option<String> {
         let pool = self.raw_pool().await;
-        let result: Result<Vec<(String,)>, _> =
-            sqlx::query_as("PRAGMA integrity_check")
-                .fetch_all(&pool)
-                .await;
+        let result: Result<Vec<(String,)>, _> = sqlx::query_as("PRAGMA integrity_check")
+            .fetch_all(&pool)
+            .await;
 
         match result {
             Ok(rows) if rows.iter().all(|(v,)| v == "ok") => {
@@ -107,14 +111,17 @@ impl DbState {
     }
 
     pub async fn get_pool(&self) -> Result<SqlitePool, String> {
+        let pool = self.pool.lock().await;
         if self.maintenance.load(Ordering::Acquire) {
             return Err(MAINTENANCE_IN_PROGRESS.into());
         }
-        Ok(self.pool.lock().await.clone())
+        Ok(pool.clone())
     }
 
     pub fn begin_maintenance(&self) -> bool {
-        self.maintenance.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok()
+        self.maintenance
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
     }
 
     pub fn end_maintenance(&self) {
@@ -169,15 +176,22 @@ impl DbState {
 
         // Define versioned migrations
         let migrations: Vec<(i32, &str, &str)> = vec![
-            (1, "create_users", r#"
+            (
+                1,
+                "create_users",
+                r#"
                 CREATE TABLE IF NOT EXISTS users (
                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
                     username    TEXT    NOT NULL UNIQUE,
                     password_hash TEXT  NOT NULL,
                     created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
                 )
-            "#),
-            (2, "create_sessions", r#"
+            "#,
+            ),
+            (
+                2,
+                "create_sessions",
+                r#"
                 CREATE TABLE IF NOT EXISTS sessions (
                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id     INTEGER NOT NULL,
@@ -186,8 +200,12 @@ impl DbState {
                     created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
                     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                 )
-            "#),
-            (3, "create_account_books", r#"
+            "#,
+            ),
+            (
+                3,
+                "create_account_books",
+                r#"
                 CREATE TABLE IF NOT EXISTS account_books (
                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
                     name        TEXT    NOT NULL,
@@ -195,18 +213,21 @@ impl DbState {
                     created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
                     updated_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
                 )
-            "#),
-            (4, "create_income_records", r#"
+            "#,
+            ),
+            (
+                4,
+                "create_income_records",
+                r#"
                 CREATE TABLE IF NOT EXISTS income_records (
                     id                INTEGER PRIMARY KEY AUTOINCREMENT,
                     book_id           INTEGER NOT NULL,
                     date              TEXT    NOT NULL,
-                    category          TEXT    NOT NULL,
-                    description       TEXT    DEFAULT '',
+                    service_content   TEXT    NOT NULL,
+                    specification     TEXT    DEFAULT '',
                     quantity          INTEGER,
                     unit              TEXT    DEFAULT '',
                     unit_price        INTEGER,
-                    size_info         TEXT    DEFAULT '',
                     total_amount      INTEGER NOT NULL,
                     settlement_status TEXT    NOT NULL DEFAULT 'unsettled',
                     payment_date      TEXT,
@@ -216,8 +237,12 @@ impl DbState {
                     updated_at        TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
                     FOREIGN KEY (book_id) REFERENCES account_books(id) ON DELETE CASCADE
                 )
-            "#),
-            (5, "create_income_images", r#"
+            "#,
+            ),
+            (
+                5,
+                "create_income_images",
+                r#"
                 CREATE TABLE IF NOT EXISTS income_images (
                     id            INTEGER PRIMARY KEY AUTOINCREMENT,
                     record_id     INTEGER NOT NULL,
@@ -226,11 +251,15 @@ impl DbState {
                     created_at    TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
                     FOREIGN KEY (record_id) REFERENCES income_records(id) ON DELETE CASCADE
                 )
-            "#),
-            (6, "add_unit_column",
-                "ALTER TABLE income_records ADD COLUMN unit TEXT DEFAULT ''"
+            "#,
             ),
-            (8, "create_indices", ""),  // handled specially below
+            (
+                6,
+                "add_unit_column",
+                "ALTER TABLE income_records ADD COLUMN unit TEXT DEFAULT ''",
+            ),
+            (8, "create_indices", ""),     // handled specially below
+            (10, "unique_book_names", ""), // handled specially below
         ];
 
         for (version, name, sql) in &migrations {
@@ -247,9 +276,11 @@ impl DbState {
                 sqlx::query("CREATE INDEX IF NOT EXISTS idx_income_records_status ON income_records(settlement_status)")
                     .execute(&mut *tx)
                     .await?;
-                sqlx::query("CREATE INDEX IF NOT EXISTS idx_income_records_date ON income_records(date)")
-                    .execute(&mut *tx)
-                    .await?;
+                sqlx::query(
+                    "CREATE INDEX IF NOT EXISTS idx_income_records_date ON income_records(date)",
+                )
+                .execute(&mut *tx)
+                .await?;
                 sqlx::query("CREATE INDEX IF NOT EXISTS idx_income_images_record_id ON income_images(record_id)")
                     .execute(&mut *tx)
                     .await?;
@@ -262,10 +293,12 @@ impl DbState {
                 continue;
             }
 
+            if *version == 10 {
+                continue; // handled specially below
+            }
+
             let mut tx = pool.begin().await?;
-            let result = sqlx::query(sql)
-                .execute(&mut *tx)
-                .await;
+            let result = sqlx::query(sql).execute(&mut *tx).await;
             match result {
                 Ok(_) => {}
                 Err(e) => {
@@ -296,24 +329,32 @@ impl DbState {
 
             if needs_money_migration {
                 let mut tx = pool.begin().await?;
-                sqlx::query("ALTER TABLE income_records RENAME COLUMN unit_price TO unit_price_real")
-                    .execute(&mut *tx)
-                    .await?;
-                sqlx::query("ALTER TABLE income_records RENAME COLUMN total_amount TO total_amount_real")
-                    .execute(&mut *tx)
-                    .await?;
+                sqlx::query(
+                    "ALTER TABLE income_records RENAME COLUMN unit_price TO unit_price_real",
+                )
+                .execute(&mut *tx)
+                .await?;
+                sqlx::query(
+                    "ALTER TABLE income_records RENAME COLUMN total_amount TO total_amount_real",
+                )
+                .execute(&mut *tx)
+                .await?;
                 sqlx::query("ALTER TABLE income_records ADD COLUMN unit_price INTEGER")
                     .execute(&mut *tx)
                     .await?;
-                sqlx::query("ALTER TABLE income_records ADD COLUMN total_amount INTEGER NOT NULL DEFAULT 0")
-                    .execute(&mut *tx)
-                    .await?;
+                sqlx::query(
+                    "ALTER TABLE income_records ADD COLUMN total_amount INTEGER NOT NULL DEFAULT 0",
+                )
+                .execute(&mut *tx)
+                .await?;
                 sqlx::query("UPDATE income_records SET unit_price = ROUND(unit_price_real * 100) WHERE unit_price_real IS NOT NULL")
                     .execute(&mut *tx)
                     .await?;
-                sqlx::query("UPDATE income_records SET total_amount = ROUND(total_amount_real * 100)")
-                    .execute(&mut *tx)
-                    .await?;
+                sqlx::query(
+                    "UPDATE income_records SET total_amount = ROUND(total_amount_real * 100)",
+                )
+                .execute(&mut *tx)
+                .await?;
                 sqlx::query("ALTER TABLE income_records DROP COLUMN unit_price_real")
                     .execute(&mut *tx)
                     .await?;
@@ -332,6 +373,166 @@ impl DbState {
             }
         }
 
+        // Version 9: replace old income record fields with service fields.
+        //
+        // This handles local databases that already applied version 4 before the
+        // service field refactor. New databases are already created with the
+        // target schema above, but existing dev databases need a one-time table
+        // rebuild because editing an already-applied migration has no effect.
+        if !applied_versions.contains(&9) {
+            let columns: Vec<(String,)> =
+                sqlx::query_as("SELECT name FROM pragma_table_info('income_records')")
+                    .fetch_all(&pool)
+                    .await?;
+            let column_names: HashSet<String> = columns.into_iter().map(|(name,)| name).collect();
+            let has_service_fields =
+                column_names.contains("service_content") && column_names.contains("specification");
+            let has_old_fields = column_names.contains("category")
+                || column_names.contains("description")
+                || column_names.contains("size_info");
+
+            if !has_service_fields || has_old_fields {
+                let mut conn = pool.acquire().await?;
+                sqlx::query("PRAGMA foreign_keys = OFF")
+                    .execute(&mut *conn)
+                    .await?;
+                let migration_result: Result<(), sqlx::Error> = async {
+                    let mut tx = conn.begin().await?;
+                    sqlx::query(
+                        r#"
+                        CREATE TABLE income_records_new (
+                            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                            book_id           INTEGER NOT NULL,
+                            date              TEXT    NOT NULL,
+                            service_content   TEXT    NOT NULL,
+                            specification     TEXT    DEFAULT '',
+                            quantity          INTEGER,
+                            unit              TEXT    DEFAULT '',
+                            unit_price        INTEGER,
+                            total_amount      INTEGER NOT NULL,
+                            settlement_status TEXT    NOT NULL DEFAULT 'unsettled',
+                            payment_date      TEXT,
+                            payment_method    TEXT,
+                            remark            TEXT    DEFAULT '',
+                            created_at        TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+                            updated_at        TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+                            FOREIGN KEY (book_id) REFERENCES account_books(id) ON DELETE CASCADE
+                        )
+                        "#,
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+
+                    sqlx::query(
+                        r#"
+                        INSERT INTO income_records_new (
+                            id, book_id, date, service_content, specification, quantity, unit,
+                            unit_price, total_amount, settlement_status, payment_date,
+                            payment_method, remark, created_at, updated_at
+                        )
+                        SELECT
+                            id,
+                            book_id,
+                            date,
+                            COALESCE(NULLIF(TRIM(description), ''), '未填写服务项目') AS service_content,
+                            COALESCE(size_info, '') AS specification,
+                            quantity,
+                            COALESCE(unit, '') AS unit,
+                            unit_price,
+                            total_amount,
+                            settlement_status,
+                            payment_date,
+                            payment_method,
+                            COALESCE(remark, '') AS remark,
+                            created_at,
+                            updated_at
+                        FROM income_records
+                        "#,
+                    )
+                    .execute(&mut *tx)
+                    .await?;
+
+                    sqlx::query("DROP TABLE income_records")
+                        .execute(&mut *tx)
+                        .await?;
+                    sqlx::query("ALTER TABLE income_records_new RENAME TO income_records")
+                        .execute(&mut *tx)
+                        .await?;
+                    sqlx::query("CREATE INDEX IF NOT EXISTS idx_income_records_book_id ON income_records(book_id)")
+                        .execute(&mut *tx)
+                        .await?;
+                    sqlx::query("CREATE INDEX IF NOT EXISTS idx_income_records_status ON income_records(settlement_status)")
+                        .execute(&mut *tx)
+                        .await?;
+                    sqlx::query("CREATE INDEX IF NOT EXISTS idx_income_records_date ON income_records(date)")
+                        .execute(&mut *tx)
+                        .await?;
+                    sqlx::query("CREATE INDEX IF NOT EXISTS idx_income_images_record_id ON income_images(record_id)")
+                        .execute(&mut *tx)
+                        .await?;
+                    sqlx::query("INSERT INTO schema_migrations (version, name) VALUES (9, 'replace_record_service_fields')")
+                        .execute(&mut *tx)
+                        .await?;
+                    tx.commit().await?;
+                    Ok(())
+                }
+                .await;
+                sqlx::query("PRAGMA foreign_keys = ON")
+                    .execute(&mut *conn)
+                    .await?;
+                migration_result?;
+            } else {
+                sqlx::query("INSERT INTO schema_migrations (version, name) VALUES (9, 'replace_record_service_fields')")
+                    .execute(&pool)
+                    .await?;
+            }
+        }
+
+        // Version 10: unique constraint on account_books.name
+        if !applied_versions.contains(&10) {
+            let mut tx = pool.begin().await?;
+
+            // First, deduplicate existing books so the unique index can be created.
+            // Find names that appear more than once, and rename older duplicates.
+            let dup_rows: Vec<(String, i64)> = sqlx::query_as(
+                "SELECT name, COUNT(*) AS cnt FROM account_books GROUP BY name HAVING cnt > 1",
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+
+            for (dup_name, _dup_count) in &dup_rows {
+                let dup_records: Vec<(i64, String)> = sqlx::query_as(
+                    "SELECT id, name FROM account_books WHERE name = ?1 ORDER BY id ASC",
+                )
+                .bind(dup_name)
+                .fetch_all(&mut *tx)
+                .await?;
+
+                // Keep the oldest record (lowest id) as-is; rename the rest
+                for (idx, (dup_id, _)) in dup_records.iter().enumerate().skip(1) {
+                    let new_name = format!("{} (重复 {})", dup_name, idx);
+                    sqlx::query("UPDATE account_books SET name = ?1 WHERE id = ?2")
+                        .bind(&new_name)
+                        .bind(dup_id)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+            }
+
+            sqlx::query(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_account_books_name ON account_books(name)",
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query(
+                "INSERT INTO schema_migrations (version, name) VALUES (10, 'unique_book_names')",
+            )
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+        }
+
         // Post-migration integrity check
         if let Some(err) = self.check_integrity().await {
             eprintln!("迁移后完整性检测异常: {}", err);
@@ -347,20 +548,20 @@ impl DbState {
 
     pub async fn needs_init(&self) -> Result<bool, sqlx::Error> {
         let pool = self.raw_pool().await;
-        let count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM users").fetch_one(&pool).await?;
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+            .fetch_one(&pool)
+            .await?;
         Ok(count.0 == 0)
     }
 
     pub async fn validate_token(&self, token: &str) -> Result<i64, String> {
         let pool = self.get_pool().await?;
-        let row: Option<(i64, String)> = sqlx::query_as(
-            "SELECT user_id, expires_at FROM sessions WHERE token = ?1",
-        )
-        .bind(token)
-        .fetch_optional(&pool)
-        .await
-        .map_err(|e| e.to_string())?;
+        let row: Option<(i64, String)> =
+            sqlx::query_as("SELECT user_id, expires_at FROM sessions WHERE token = ?1")
+                .bind(token)
+                .fetch_optional(&pool)
+                .await
+                .map_err(|e| e.to_string())?;
 
         let (user_id, expires_at) = row.ok_or(AUTH_REQUIRED)?;
 
