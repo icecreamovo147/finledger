@@ -3,6 +3,10 @@ use crate::db::DbState;
 use crate::models::{AccountBook, PaginatedBooks};
 use tauri::State;
 
+fn escape_like(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+}
+
 #[tauri::command]
 pub async fn create_book(
     db: State<'_, DbState>,
@@ -28,7 +32,13 @@ pub async fn create_book(
     .bind(&now)
     .execute(&pool)
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| {
+        if e.to_string().contains("UNIQUE") {
+            "账本名称已存在".into()
+        } else {
+            e.to_string()
+        }
+    })?
     .last_insert_rowid();
 
     Ok(AccountBook {
@@ -48,6 +58,7 @@ pub async fn list_books(
     token: String,
     page: Option<i64>,
     page_size: Option<i64>,
+    keyword: Option<String>,
 ) -> Result<PaginatedBooks, String> {
     db.validate_token(&token).await?;
     let pool = db.get_pool().await?;
@@ -56,51 +67,92 @@ pub async fn list_books(
     let page_size = page_size.unwrap_or(20).clamp(1, 100);
     let offset = (page - 1) * page_size;
 
-    let (total,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM account_books")
+    let keyword = keyword.filter(|k| !k.trim().is_empty());
+    let search_pattern = keyword.as_ref().map(|k| format!("%{}%", escape_like(k.trim())));
+
+    let total: (i64,) = if search_pattern.is_some() {
+        sqlx::query_as(
+            "SELECT COUNT(*) FROM account_books WHERE name LIKE ?1 ESCAPE '\\' OR remark LIKE ?1 ESCAPE '\\'",
+        )
+        .bind(search_pattern.as_ref().unwrap())
         .fetch_one(&pool)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?
+    } else {
+        sqlx::query_as("SELECT COUNT(*) FROM account_books")
+            .fetch_one(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+    };
 
-    let books: Vec<(i64, String, String, String, String, Option<i64>, Option<i64>)> = sqlx::query_as(
-        r#"
-        SELECT
-            b.id, b.name, b.remark, b.created_at, b.updated_at,
-            COALESCE(SUM(CASE WHEN r.settlement_status = 'unsettled' THEN r.total_amount ELSE 0 END), 0) as total_unsettled,
-            COUNT(r.id) as record_count
-        FROM account_books b
-        LEFT JOIN income_records r ON r.book_id = b.id
-        GROUP BY b.id
-        ORDER BY b.created_at ASC
-        LIMIT ?1 OFFSET ?2
-        "#,
-    )
-    .bind(page_size)
-    .bind(offset)
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| e.to_string())?;
+    let books: Vec<(i64, String, String, String, String, Option<i64>, Option<i64>)> =
+        if let Some(ref pat) = search_pattern {
+            sqlx::query_as(
+                "SELECT \
+                    b.id, b.name, b.remark, b.created_at, b.updated_at, \
+                    COALESCE(SUM(CASE WHEN r.settlement_status = 'unsettled' THEN r.total_amount ELSE 0 END), 0) as total_unsettled, \
+                    COUNT(r.id) as record_count \
+                FROM account_books b \
+                LEFT JOIN income_records r ON r.book_id = b.id \
+                WHERE b.name LIKE ?1 ESCAPE '\\' OR b.remark LIKE ?1 ESCAPE '\\' \
+                GROUP BY b.id \
+                ORDER BY b.created_at ASC \
+                LIMIT ?2 OFFSET ?3",
+            )
+            .bind(pat)
+            .bind(page_size)
+            .bind(offset)
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+        } else {
+            sqlx::query_as(
+                r#"
+                SELECT
+                    b.id, b.name, b.remark, b.created_at, b.updated_at,
+                    COALESCE(SUM(CASE WHEN r.settlement_status = 'unsettled' THEN r.total_amount ELSE 0 END), 0) as total_unsettled,
+                    COUNT(r.id) as record_count
+                FROM account_books b
+                LEFT JOIN income_records r ON r.book_id = b.id
+                GROUP BY b.id
+                ORDER BY b.created_at ASC
+                LIMIT ?1 OFFSET ?2
+                "#,
+            )
+            .bind(page_size)
+            .bind(offset)
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+        };
 
     Ok(PaginatedBooks {
-        total,
+        total: total.0,
         books: books
             .into_iter()
-            .map(|(id, name, remark, created_at, updated_at, total_unsettled, record_count)| {
-                AccountBook {
-                    id,
-                    name,
-                    remark,
-                    created_at,
-                    updated_at,
-                    total_unsettled,
-                    record_count,
-                }
-            })
+            .map(
+                |(id, name, remark, created_at, updated_at, total_unsettled, record_count)| {
+                    AccountBook {
+                        id,
+                        name,
+                        remark,
+                        created_at,
+                        updated_at,
+                        total_unsettled,
+                        record_count,
+                    }
+                },
+            )
             .collect(),
     })
 }
 
 #[tauri::command]
-pub async fn get_book(db: State<'_, DbState>, token: String, id: i64) -> Result<AccountBook, String> {
+pub async fn get_book(
+    db: State<'_, DbState>,
+    token: String,
+    id: i64,
+) -> Result<AccountBook, String> {
     db.validate_token(&token).await?;
     let pool = db.get_pool().await?;
 
@@ -162,7 +214,13 @@ pub async fn update_book(
     .bind(id)
     .execute(&pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| {
+        if e.to_string().contains("UNIQUE") {
+            "账本名称已存在".into()
+        } else {
+            e.to_string()
+        }
+    })?;
 
     if result.rows_affected() == 0 {
         return Err("账本不存在".into());
@@ -200,9 +258,10 @@ pub async fn delete_book(db: State<'_, DbState>, token: String, id: i64) -> Resu
 
     // After commit, delete image files (best-effort)
     for (path,) in &images {
-        let full_path = resolve_image_path(&db, path);
-        if let Err(e) = std::fs::remove_file(&full_path) {
-            eprintln!("警告: 无法删除图片文件 {}: {}", full_path.display(), e);
+        if let Ok(full_path) = resolve_image_path(&db, path) {
+            if let Err(e) = std::fs::remove_file(&full_path) {
+                eprintln!("警告: 无法删除图片文件 {}: {}", full_path.display(), e);
+            }
         }
     }
     Ok(())
