@@ -7,9 +7,58 @@ use db::{sqlite_options, DbState};
 use sqlx::sqlite::SqlitePoolOptions;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use tauri::image::Image;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder};
+use tauri::AppHandle;
 use tauri::Manager;
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult};
 
 pub struct LoginAttempts(pub Mutex<HashMap<String, (u32, chrono::DateTime<chrono::Utc>)>>);
+const TRAY_MENU_OPEN_ID: &str = "tray_open_main";
+#[cfg(target_os = "macos")]
+const TRAY_MENU_HIDE_ID: &str = "tray_hide_main";
+const TRAY_MENU_EXIT_ID: &str = "tray_exit_app";
+
+#[tauri::command]
+fn exit_app(app: AppHandle) {
+    app.exit(0);
+}
+
+fn show_main_window<R: tauri::Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_skip_taskbar(false);
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn hide_main_window<R: tauri::Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn handle_tray_menu_event<R: tauri::Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEvent) {
+    match event.id().as_ref() {
+        TRAY_MENU_OPEN_ID => show_main_window(app),
+        TRAY_MENU_HIDE_ID => hide_main_window(app),
+        TRAY_MENU_EXIT_ID => app.exit(0),
+        _ => {}
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn handle_tray_menu_event<R: tauri::Runtime>(app: &AppHandle<R>, event: tauri::menu::MenuEvent) {
+    match event.id().as_ref() {
+        TRAY_MENU_OPEN_ID => show_main_window(app),
+        TRAY_MENU_EXIT_ID => app.exit(0),
+        _ => {}
+    }
+}
 
 pub fn run() {
     tauri::Builder::default()
@@ -63,7 +112,76 @@ pub fn run() {
                 scheduler.restart(&db_for_scheduler, backup_settings).await;
             });
 
+            let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))
+                .expect("failed to load tray icon");
+            let open_item = MenuItem::with_id(app, TRAY_MENU_OPEN_ID, "打开主界面", true, None::<&str>)?;
+            #[cfg(target_os = "macos")]
+            let hide_item = MenuItem::with_id(app, TRAY_MENU_HIDE_ID, "隐藏主窗口", true, None::<&str>)?;
+            let exit_item = MenuItem::with_id(app, TRAY_MENU_EXIT_ID, "退出", true, None::<&str>)?;
+            #[cfg(target_os = "macos")]
+            let tray_menu = Menu::with_items(app, &[&open_item, &hide_item, &exit_item])?;
+            #[cfg(not(target_os = "macos"))]
+            let tray_menu = Menu::with_items(app, &[&open_item, &exit_item])?;
+            let _tray = TrayIconBuilder::new()
+                .menu(&tray_menu)
+                .show_menu_on_left_click(cfg!(target_os = "macos"))
+                .icon(icon)
+                .tooltip("FinLedger")
+                .on_menu_event(handle_tray_menu_event)
+                .on_tray_icon_event(|tray_icon, event| {
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        if let tauri::tray::TrayIconEvent::Click {
+                            button,
+                            button_state,
+                            ..
+                        } = event
+                        {
+                            if button == MouseButton::Left && button_state == MouseButtonState::Up {
+                                show_main_window(&tray_icon.app_handle());
+                            }
+                        }
+                    }
+                })
+                .build(app)?;
+
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = window.hide();
+                }
+
+                #[cfg(not(target_os = "macos"))]
+                let window = window.clone();
+                #[cfg(not(target_os = "macos"))]
+                {
+                    window
+                        .dialog()
+                        .message("请选择关闭方式")
+                        .title("关闭 FinLedger")
+                        .kind(MessageDialogKind::Info)
+                        .buttons(MessageDialogButtons::YesNoCancelCustom(
+                            "最小化到托盘".into(),
+                            "直接关闭".into(),
+                            "取消".into(),
+                        ))
+                        .parent(&window)
+                        .show_with_result(move |result| match result {
+                            MessageDialogResult::Custom(choice) if choice == "最小化到托盘" => {
+                                let _ = window.set_skip_taskbar(true);
+                                let _ = window.hide();
+                            }
+                            MessageDialogResult::Custom(choice) if choice == "直接关闭" => {
+                                window.app_handle().exit(0);
+                            }
+                            _ => {}
+                        });
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::auth::get_app_data_path,
@@ -107,6 +225,7 @@ pub fn run() {
             commands::backup_settings::run_backup_now,
             commands::backup_settings::restore_backup,
             commands::backup_settings::delete_backup_file,
+            exit_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
