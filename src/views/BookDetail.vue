@@ -211,7 +211,7 @@
         </el-form-item>
 
         <el-form-item label="数量" prop="quantity">
-          <el-input-number v-model="form.quantity" :min="0" style="width: 160px" />
+          <el-input-number v-model="form.quantity" :min="0" :precision="0" style="width: 160px" />
           <el-select
             v-model="form.unit"
             prop="unit"
@@ -486,6 +486,11 @@ let unlistenDragDrop: UnlistenFn | undefined;
 let lastDropTime = 0;
 const DROP_DEBOUNCE_MS = 500;
 
+function todayLocal(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 onMounted(async () => {
   await registerTauriDragDrop();
   await fetchBookName();
@@ -654,7 +659,7 @@ const imageSessionCommitted = ref(false);
 function openCreate() {
   isEditing.value = false;
   editingId.value = null;
-  form.date = new Date().toISOString().slice(0, 10);
+  form.date = todayLocal();
   form.service_content = "";
   form.specification = "";
   form.quantity = undefined;
@@ -801,7 +806,7 @@ async function handleSave() {
       quantity: form.quantity,
       unit: form.unit,
       unitPrice: form.unit_price != null ? Math.round(form.unit_price * 100) : null,
-      totalAmount: Math.round(Math.round(form.total_amount * 1000) / 10),
+      totalAmount: Math.round(form.total_amount * 100),
       remark: form.remark,
     };
 
@@ -873,7 +878,7 @@ const paymentMethods = PaymentMethods;
 
 function openSettle(record: IncomeRecord) {
   settlingId.value = record.id;
-  settleForm.payment_date = new Date().toISOString().slice(0, 10);
+  settleForm.payment_date = todayLocal();
   settleForm.payment_method = "";
   showSettleDialog.value = true;
 }
@@ -909,7 +914,7 @@ async function batchSettle() {
       failCount++;
       continue;
     }
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayLocal();
     try {
       await safeInvoke("settle_record", {
         id,
@@ -961,7 +966,7 @@ async function exportSelected() {
   try {
     const savePath = await save({
       title: "保存账单",
-      defaultPath: `账单_${sanitizeFileName(bookName.value)}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      defaultPath: `账单_${sanitizeFileName(bookName.value)}_${todayLocal()}.xlsx`,
       filters: [{ name: "Excel", extensions: ["xlsx"] }],
     });
     if (!savePath) return;
@@ -981,7 +986,7 @@ async function exportAllUnsettled() {
   try {
     const savePath = await save({
       title: "保存全部未结清账单",
-      defaultPath: `全部未结清_${sanitizeFileName(bookName.value)}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      defaultPath: `全部未结清_${sanitizeFileName(bookName.value)}_${todayLocal()}.xlsx`,
       filters: [{ name: "Excel", extensions: ["xlsx"] }],
     });
     if (!savePath) return;
