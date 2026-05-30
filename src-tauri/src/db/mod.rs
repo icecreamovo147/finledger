@@ -15,14 +15,14 @@ pub fn sqlite_options(path: &Path) -> SqliteConnectOptions {
 }
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 pub const AUTH_REQUIRED: &str = "会话无效或已过期，请重新登录";
 pub const MAINTENANCE_IN_PROGRESS: &str = "系统维护中，请稍后再试";
 
 #[derive(Clone)]
 pub struct DbState {
-    pool: Arc<Mutex<SqlitePool>>,
+    pool: Arc<RwLock<SqlitePool>>,
     maintenance: Arc<AtomicBool>,
     integrity_error: Arc<Mutex<Option<String>>>,
     pub app_data_dir: PathBuf,
@@ -68,7 +68,7 @@ impl DbState {
         // the raw path; downstream boundary checks canonicalize both sides.
         let images_dir = raw_dir.canonicalize().unwrap_or(raw_dir);
         Self {
-            pool: Arc::new(Mutex::new(pool)),
+            pool: Arc::new(RwLock::new(pool)),
             maintenance: Arc::new(AtomicBool::new(false)),
             integrity_error: Arc::new(Mutex::new(None)),
             images_dir,
@@ -114,7 +114,7 @@ impl DbState {
     }
 
     pub async fn get_pool(&self) -> Result<SqlitePool, String> {
-        let pool = self.pool.lock().await;
+        let pool = self.pool.read().await;
         if self.maintenance.load(Ordering::Acquire) {
             return Err(MAINTENANCE_IN_PROGRESS.into());
         }
@@ -132,12 +132,12 @@ impl DbState {
     }
 
     pub async fn replace_pool(&self, new_pool: SqlitePool) {
-        let mut pool = self.pool.lock().await;
+        let mut pool = self.pool.write().await;
         *pool = new_pool;
     }
 
     pub async fn raw_pool(&self) -> SqlitePool {
-        self.pool.lock().await.clone()
+        self.pool.read().await.clone()
     }
 
     pub async fn run_migrations(&self) -> Result<(), sqlx::Error> {
@@ -233,6 +233,7 @@ impl DbState {
                     specification     TEXT    DEFAULT '',
                     quantity          INTEGER,
                     unit              TEXT    DEFAULT '',
+                    unit              TEXT    DEFAULT '',
                     unit_price        INTEGER,
                     total_amount      INTEGER NOT NULL,
                     settlement_status TEXT    NOT NULL DEFAULT 'unsettled' CHECK (settlement_status IN ('unsettled', 'settled')),
@@ -259,12 +260,7 @@ impl DbState {
                 )
             "#,
             ),
-            (
-                6,
-                "add_unit_column",
-                "ALTER TABLE income_records ADD COLUMN unit TEXT DEFAULT ''",
-            ),
-            (8, "create_indices", ""),     // handled specially below
+            (8, "create_indices", ""),     // 6 (add_unit_column) merged into v4     // handled specially below
             (10, "unique_book_names", ""), // handled specially below
             (11, "add_check_constraints", ""), // handled specially below
         ];
@@ -334,7 +330,7 @@ impl DbState {
             .fetch_optional(&pool)
             .await?;
 
-            let needs_money_migration = col_type.as_ref().map_or(false, |(t,)| t == "REAL");
+            let needs_money_migration = col_type.as_ref().is_some_and(|(t,)| t == "REAL");
 
             if needs_money_migration {
                 info!("迁移 7: REAL → INTEGER 金额转换开始");

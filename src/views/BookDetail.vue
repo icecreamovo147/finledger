@@ -257,7 +257,7 @@
             class="image-upload"
             :class="{ 'drag-over': isDragOver }"
             @dragover.prevent="onDialogDragOver"
-            @dragleave="isDragOver = false"
+            @dragleave="onDragLeave"
             @drop.prevent="onDrop"
           >
             <div
@@ -277,7 +277,7 @@
               <span
                 class="image-remove"
                 title="移除图片"
-                @click="removeExistingImage(img.id, idx)"
+                @click="removeExistingImage(img.id)"
               ><el-icon><Delete /></el-icon></span>
             </div>
             <div
@@ -288,7 +288,7 @@
               <img
                 :src="img.previewUrl"
                 style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px; cursor: pointer"
-                @click="previewNewImages(idx)"
+                @click="previewNewImagesByIndex(idx)"
               />
               <span
                 class="image-remove"
@@ -437,64 +437,90 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { ElMessage, ElMessageBox } from "element-plus";
-import type { FormInstance, FormRules } from "element-plus";
-import type { AccountBook, IncomeRecord, IncomeImage, PaginatedRecords } from "@/types";
+import { ElMessage } from "element-plus";
 import { Plus, Delete, ArrowLeft } from "@element-plus/icons-vue";
 import { PaymentMethods } from "@/types";
-import { safeInvoke } from "@/utils/invoke";
+import { useRecords } from "@/composables/useRecords";
+import { useRecordForm } from "@/composables/useRecordForm";
+import { useSettlement } from "@/composables/useSettlement";
 
 const route = useRoute();
 const router = useRouter();
 const bookId = Number(route.params.id);
-const bookName = ref("");
 
+// ---- Data & Filtering ----
+const rec = useRecords(bookId);
+const {
+  bookName, records, selectedIds, loading, total, totalUnsettled,
+  bookTotalUnsettled, currentPage, pageSize, filters,
+  selectedUnsettled, hasActiveFilters,
+  getImageUrl, isImageMissing, loadImageSrc,
+  fetchBookName, fetchRecords, handlePageChange, handleSizeChange,
+  handleFilterChange, onSelectionChange,
+} = rec;
+
+// Wrap fetchRecords to show errors (composable throws, component handles UI)
+async function safeFetchRecords() {
+  try { await fetchRecords(); } catch (e: any) { ElMessage.error(e || "加载失败"); }
+}
+
+// ---- Record Form ----
+const formCtx = useRecordForm(bookId, {
+  loadImageSrc,
+  refreshRecords: safeFetchRecords,
+});
+const {
+  showFormDialog, isEditing, saving, formRef, formRules, form,
+  existingImages, newImages, isDragOver,
+  openCreate, openEdit,
+  addImagePath,
+  onFileSelect, onDialogDragOver, onDragLeave, onDrop, onPaste,
+  removeNewImage, removeExistingImage,
+  handleSave, handleDelete,
+} = formCtx;
+
+// ---- Settlement & Export ----
+const stl = useSettlement(bookId, bookName, {
+  records,
+  selectedIds,
+  selectedUnsettled,
+  imageSrcMap: rec.imageSrcMap,
+  refreshRecords: safeFetchRecords,
+});
+const {
+  showSettleDialog, settling, settleFormRef, settleForm, settleRules,
+  openSettle, handleSettle, batchSettle, handleUnsettle,
+  showPreview, previewImagesList, previewIndex,
+  previewImages, previewNewImages,
+  showDetailDialog, detailRecord, viewDetail,
+} = stl;
+
+// ---- Constants ----
+const unitOptions = ["份", "张", "块", "个", "本", "套", "卷", "米", "平方米", "次", "项"];
+const paymentMethods = PaymentMethods;
 const tableRef = ref();
-const records = ref<IncomeRecord[]>([]);
-const selectedIds = ref<number[]>([]);
-const loading = ref(false);
-const total = ref(0);
-const totalUnsettled = ref(0);
-const bookTotalUnsettled = ref(0);
-const currentPage = ref(1);
-const pageSize = ref(20);
 
-const filters = reactive({
-  settlement_status: undefined as string | undefined,
-  dateRange: null as [string, string] | null,
-  keyword: "",
-});
+// ---- Export wrappers (pass Tauri save dialog) ----
+async function exportSelected() {
+  await stl.exportSelected(save);
+}
+async function exportAllUnsettled() {
+  await stl.exportAllUnsettled(save);
+}
 
-const selectedUnsettled = computed(() => {
-  return records.value.filter(
-    r => selectedIds.value.includes(r.id) && r.settlement_status === "unsettled"
-  );
-});
-
-const hasActiveFilters = computed(() => {
-  return !!(filters.settlement_status || filters.dateRange || filters.keyword);
-});
-
-const IMAGE_MISSING = "__MISSING__";
-const imageSrcMap = ref<Record<number, string>>({});
+// ---- Tauri drag-drop (uses form composable internals) ----
 let unlistenDragDrop: UnlistenFn | undefined;
 let lastDropTime = 0;
-const DROP_DEBOUNCE_MS = 500;
-
-function todayLocal(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
 
 onMounted(async () => {
   await registerTauriDragDrop();
   await fetchBookName();
-  await fetchRecords();
+  await safeFetchRecords();
 });
 
 onUnmounted(() => {
@@ -505,546 +531,34 @@ async function registerTauriDragDrop() {
   try {
     unlistenDragDrop = await getCurrentWindow().onDragDropEvent(async ({ payload }) => {
       if (!showFormDialog.value) return;
-
       const now = Date.now();
-      if (now - lastDropTime < DROP_DEBOUNCE_MS) return;
+      if (now - lastDropTime < 500) return;
       lastDropTime = now;
-
       if (payload.type === "enter" || payload.type === "over") {
         isDragOver.value = true;
         return;
       }
-
       if (payload.type === "leave") {
         isDragOver.value = false;
         return;
       }
-
       isDragOver.value = false;
       for (const path of payload.paths) {
         await addImagePath(path);
       }
     });
   } catch {
-    // Browser-only dev mode still uses the native HTML drop handler.
+    // Browser-only dev mode
   }
 }
 
-async function fetchBookName() {
-  try {
-    const book = await safeInvoke<AccountBook>("get_book", { id: bookId });
-    bookName.value = book.name;
-  } catch { /* ignore */ }
-}
-
-async function fetchRecords() {
-  loading.value = true;
-  try {
-    const [date_from, date_to] = filters.dateRange || [null, null];
-    const res = await safeInvoke<PaginatedRecords>("list_records", {
-      bookId,
-      settlementStatus: filters.settlement_status || null,
-      dateFrom: date_from,
-      dateTo: date_to,
-      keyword: filters.keyword || null,
-      page: currentPage.value,
-      pageSize: pageSize.value,
-    });
-    records.value = res.records;
-    total.value = res.total;
-    totalUnsettled.value = res.total_unsettled;
-    bookTotalUnsettled.value = res.book_total_unsettled;
-    // Preload images returned with records
-    for (const record of records.value) {
-      for (const img of record.images) {
-        loadImageSrc(img.id);
-      }
-    }
-  } catch (e: any) {
-    ElMessage.error(e || "加载失败");
-  } finally {
-    loading.value = false;
-  }
-}
-
-function handlePageChange(page: number) {
-  currentPage.value = page;
-  fetchRecords();
-}
-
-function handleSizeChange(size: number) {
-  pageSize.value = size;
-  currentPage.value = 1;
-  fetchRecords();
-}
-
-function handleFilterChange() {
-  currentPage.value = 1;
-  fetchRecords();
-}
-
-function onSelectionChange(rows: IncomeRecord[]) {
-  selectedIds.value = rows.map(r => r.id);
-}
-
-function getImageUrl(imageId: number): string {
-  const val = imageSrcMap.value[imageId];
-  if (val === IMAGE_MISSING) return "";
-  return val || "";
-}
-
-function isImageMissing(imageId: number): boolean {
-  return imageSrcMap.value[imageId] === IMAGE_MISSING;
-}
-
-async function loadImageSrc(imageId: number) {
-  if (imageSrcMap.value[imageId]) return;
-  try {
-    const dataUrl = await safeInvoke<string>("read_image_base64", { imageId });
-    imageSrcMap.value[imageId] = dataUrl;
-  } catch {
-    imageSrcMap.value[imageId] = IMAGE_MISSING;
-  }
-}
-
-// ===== Record Form (T13) =====
-
-const showFormDialog = ref(false);
-const isEditing = ref(false);
-const editingId = ref<number | null>(null);
-const saving = ref(false);
-const formRef = ref<FormInstance>();
-const form = reactive({
-  date: "",
-  service_content: "",
-  specification: "",
-  quantity: undefined as number | undefined,
-  unit: "",
-  unit_price: undefined as number | undefined,
-  total_amount: 0,
-  remark: "",
-});
-// Auto-calculate total amount (form fields are in yuan, backend stores cents)
-watch(
-  () => [form.quantity, form.unit_price],
-  ([qty, price]) => {
-    if (qty != null && price != null) {
-      form.total_amount = Math.round(qty * price * 100) / 100;
-    }
-  }
-);
-
-const formRules: FormRules = {
-  date: [{ required: true, message: "请选择日期", trigger: "blur" }],
-  service_content: [{ required: true, message: "请输入服务项目及内容", trigger: "blur" }],
-  quantity: [{ required: true, message: "请输入数量", trigger: "blur" }],
-  unit: [{ required: true, message: "请选择单位", trigger: "change" }],
-  unit_price: [{ required: true, message: "请输入单价", trigger: "blur" }],
-  total_amount: [{ required: true, message: "请输入金额", trigger: "blur" }],
-};
-
-interface PendingImage {
-  tempId: string;
-  originalName: string;
-  previewUrl: string;
-}
-
-const existingImages = ref<IncomeImage[]>([]);
-const removedImageIds = ref<number[]>([]);
-const newImages = ref<PendingImage[]>([]);
-const isDragOver = ref(false);
-const imageSessionId = ref("");
-const imageSessionCommitted = ref(false);
-
-function openCreate() {
-  isEditing.value = false;
-  editingId.value = null;
-  form.date = todayLocal();
-  form.service_content = "";
-  form.specification = "";
-  form.quantity = undefined;
-  form.unit = "";
-  form.unit_price = undefined;
-  form.total_amount = 0;
-  form.remark = "";
-  existingImages.value = [];
-  removedImageIds.value = [];
-  newImages.value = [];
-  imageSessionId.value = crypto.randomUUID();
-  imageSessionCommitted.value = false;
-  showFormDialog.value = true;
-}
-
-function openEdit(record: IncomeRecord) {
-  isEditing.value = true;
-  editingId.value = record.id;
-  form.date = record.date;
-  form.service_content = record.service_content;
-  form.specification = record.specification;
-  form.quantity = record.quantity;
-  form.unit = record.unit || "";
-  form.unit_price = record.unit_price != null ? record.unit_price / 100 : undefined;
-  form.total_amount = record.total_amount / 100;
-  form.remark = record.remark;
-  existingImages.value = [...record.images];
-  removedImageIds.value = [];
-  newImages.value = [];
-  imageSessionId.value = crypto.randomUUID();
-  imageSessionCommitted.value = false;
-  showFormDialog.value = true;
-  // Preload existing images
-  for (const img of record.images) {
-    loadImageSrc(img.id);
-  }
-}
-
-async function addImageFile(file: File) {
-  if (!file.type.startsWith("image/")) return;
-  try {
-    const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
-    const staged = await safeInvoke<{
-      temp_id: string;
-      original_name: string;
-      preview_data_url: string;
-    }>("stage_image_bytes", {
-      sessionId: imageSessionId.value,
-      fileName: file.name,
-      fileBytes: bytes,
-    });
-    newImages.value.push({
-      tempId: staged.temp_id,
-      originalName: staged.original_name,
-      previewUrl: staged.preview_data_url,
-    });
-  } catch (e: any) {
-    ElMessage.warning(e || "暂存图片失败，请重试");
-  }
-}
-
-async function addImagePath(path: string) {
-  try {
-    const staged = await safeInvoke<{
-      temp_id: string;
-      original_name: string;
-      preview_data_url: string;
-    }>("stage_image_from_path", {
-      sessionId: imageSessionId.value,
-      path,
-    });
-    newImages.value.push({
-      tempId: staged.temp_id,
-      originalName: staged.original_name,
-      previewUrl: staged.preview_data_url,
-    });
-  } catch (e: any) {
-    ElMessage.warning(e || "暂存图片失败，请重试");
-  }
-}
-
-async function onFileSelect(uploadFile: any) {
-  await addImageFile(uploadFile.raw as File);
-}
-
-function onDialogDragOver(e: DragEvent) {
-  if (e.dataTransfer?.types.includes("Files")) {
-    isDragOver.value = true;
-  }
-}
-
-async function onDrop(e: DragEvent) {
-  const now = Date.now();
-  if (now - lastDropTime < DROP_DEBOUNCE_MS) return;
-  lastDropTime = now;
-  isDragOver.value = false;
-  const files = e.dataTransfer?.files;
-  if (!files) return;
-  for (let i = 0; i < files.length; i++) {
-    await addImageFile(files[i]);
-  }
-}
-
-async function onPaste(e: ClipboardEvent) {
-  const items = e.clipboardData?.items;
-  if (!items) return;
-  for (let i = 0; i < items.length; i++) {
-    if (items[i].type.startsWith("image/")) {
-      const blob = items[i].getAsFile();
-      if (blob) await addImageFile(blob);
-    }
-  }
-}
-
-async function removeNewImage(idx: number) {
-  const img = newImages.value[idx];
-  if (!img) return;
-  try {
-    await safeInvoke("delete_staged_image", {
-      sessionId: imageSessionId.value,
-      tempId: img.tempId,
-    });
-  } catch { /* best-effort cleanup */ }
-  newImages.value.splice(idx, 1);
-}
-
-function removeExistingImage(imageId: number, _idx: number) {
-  removedImageIds.value.push(imageId);
-  existingImages.value = existingImages.value.filter(i => i.id !== imageId);
-}
-
-async function handleSave() {
-  if (!formRef.value) return;
-  const valid = await formRef.value.validate().catch(() => false);
-  if (!valid) return;
-
-  saving.value = true;
-  try {
-    const payload = {
-      bookId,
-      date: form.date,
-      serviceContent: form.service_content.trim(),
-      specification: form.specification.trim(),
-      quantity: form.quantity,
-      unit: form.unit,
-      unitPrice: form.unit_price != null ? Math.round(form.unit_price * 100) : null,
-      totalAmount: Math.round(form.total_amount * 100),
-      remark: form.remark,
-    };
-
-    const tempImageIds = newImages.value.map((img) => img.tempId);
-
-    if (isEditing.value && editingId.value) {
-      const keepImageIds = existingImages.value.map(i => i.id);
-      await safeInvoke("update_record_with_staged_images", {
-        id: editingId.value,
-        ...payload,
-        keepImageIds,
-        sessionId: imageSessionId.value,
-        tempImageIds,
-      });
-      ElMessage.success("记录已更新");
-    } else {
-      await safeInvoke("create_record_with_staged_images", {
-        ...payload,
-        sessionId: imageSessionId.value,
-        tempImageIds,
-      });
-      ElMessage.success("记录已创建");
-    }
-
-    imageSessionCommitted.value = true;
-    showFormDialog.value = false;
-    fetchRecords();
-  } catch (e: any) {
-    ElMessage.error(e || "操作失败");
-  } finally {
-    saving.value = false;
-  }
-}
-
-// Clean up staging session when dialog closes without saving
-watch(showFormDialog, async (visible) => {
-  if (!visible && imageSessionId.value && !imageSessionCommitted.value) {
-    try {
-      await safeInvoke("cancel_image_staging_session", {
-        sessionId: imageSessionId.value,
-      });
-    } catch { /* best-effort cleanup */ }
-  }
-});
-
-async function handleDelete(id: number) {
-  try {
-    await safeInvoke("delete_record", { id });
-    ElMessage.success("已删除");
-    fetchRecords();
-  } catch (e: any) {
-    ElMessage.error(e || "删除失败");
-  }
-}
-
-// ===== Settlement (T15) =====
-
-const showSettleDialog = ref(false);
-const settlingId = ref(0);
-const settling = ref(false);
-const settleFormRef = ref<FormInstance>();
-const settleForm = reactive({ payment_date: "", payment_method: "" });
-const settleRules: FormRules = {
-  payment_date: [{ required: true, message: "请选择收款日期", trigger: "change" }],
-  payment_method: [{ required: true, message: "请选择或输入收款方式", trigger: "change" }],
-};
-const unitOptions = ["份", "张", "块", "个", "本", "套", "卷", "米", "平方米", "次", "项"];
-const paymentMethods = PaymentMethods;
-
-function openSettle(record: IncomeRecord) {
-  settlingId.value = record.id;
-  settleForm.payment_date = todayLocal();
-  settleForm.payment_method = "";
-  showSettleDialog.value = true;
-}
-
-async function handleSettle() {
-  if (!settleFormRef.value) return;
-  const valid = await settleFormRef.value.validate().catch(() => false);
-  if (!valid) return;
-
-  settling.value = true;
-  try {
-    await safeInvoke("settle_record", {
-      id: settlingId.value,
-      paymentDate: settleForm.payment_date,
-      paymentMethod: settleForm.payment_method,
-    });
-    ElMessage.success("已标记为结清");
-    showSettleDialog.value = false;
-    fetchRecords();
-  } catch (e: any) {
-    ElMessage.error(e || "操作失败");
-  } finally {
-    settling.value = false;
-  }
-}
-
-async function batchSettle() {
-  let successCount = 0;
-  let failCount = 0;
-  for (const id of selectedIds.value) {
-    const record = records.value.find(r => r.id === id);
-    if (!record || record.settlement_status === "settled") {
-      failCount++;
-      continue;
-    }
-    const today = todayLocal();
-    try {
-      await safeInvoke("settle_record", {
-        id,
-        paymentDate: today,
-        paymentMethod: "批量结清",
-      });
-      successCount++;
-    } catch {
-      failCount++;
-    }
-  }
-  if (failCount > 0) {
-    ElMessage.warning(`批量结清完成：${successCount} 条成功，${failCount} 条失败`);
-  } else {
-    ElMessage.success(`批量结清完成，共 ${successCount} 条`);
-  }
-  selectedIds.value = [];
-  fetchRecords();
-}
-
-async function handleUnsettle(record: IncomeRecord) {
-  try {
-    await ElMessageBox.confirm(
-      "确定要将该记录回退为未结清状态吗？",
-      "确认回退",
-      { confirmButtonText: "确定回退", cancelButtonText: "取消", type: "warning" }
-    );
-    await safeInvoke("unsettle_record", { id: record.id });
-    ElMessage.success("已回退为未结清");
-    fetchRecords();
-  } catch (e: any) {
-    if (e === "cancel" || e?.message === "cancel") return;
-    ElMessage.error(e || "操作失败");
-  }
-}
-
-// ===== Export (T17) =====
-
-function sanitizeFileName(name: string): string {
-  return (
-    name
-      .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
-      .replace(/[. ]+$/g, "")
-      .trim() || "未命名账本"
-  );
-}
-
-async function exportSelected() {
-  try {
-    const savePath = await save({
-      title: "保存账单",
-      defaultPath: `账单_${sanitizeFileName(bookName.value)}_${todayLocal()}.xlsx`,
-      filters: [{ name: "Excel", extensions: ["xlsx"] }],
-    });
-    if (!savePath) return;
-
-    await safeInvoke("export_excel", {
-      bookId,
-      recordIds: selectedUnsettled.value.map(r => r.id),
-      savePath: savePath as string,
-    });
-    ElMessage.success("导出成功");
-  } catch (e: any) {
-    ElMessage.error(e || "导出失败");
-  }
-}
-
-async function exportAllUnsettled() {
-  try {
-    const savePath = await save({
-      title: "保存全部未结清账单",
-      defaultPath: `全部未结清_${sanitizeFileName(bookName.value)}_${todayLocal()}.xlsx`,
-      filters: [{ name: "Excel", extensions: ["xlsx"] }],
-    });
-    if (!savePath) return;
-
-    await safeInvoke("export_all_unsettled", {
-      bookId,
-      savePath: savePath as string,
-    });
-    ElMessage.success("导出成功");
-  } catch (e: any) {
-    ElMessage.error(e || "导出失败");
-  }
-}
-
-// ===== Detail View =====
-const showPreview = ref(false);
-const previewImagesList = ref<IncomeImage[]>([]);
-const previewIndex = ref(0);
-
-function previewImages(images: IncomeImage[], idx: number) {
-  previewImagesList.value = images;
-  previewIndex.value = idx;
-  showPreview.value = true;
-  for (const img of images) {
-    loadImageSrc(img.id);
-  }
-}
-
-function previewNewImages(idx: number) {
-  const list: IncomeImage[] = newImages.value.map((img, i) => ({
-    id: -1 - i,
-    record_id: 0,
-    file_path: "",
-    original_name: img.originalName,
-    created_at: "",
-  }));
-  newImages.value.forEach((img, i) => {
-    imageSrcMap.value[-1 - i] = img.previewUrl;
-  });
-  previewImagesList.value = list;
-  previewIndex.value = idx;
-  showPreview.value = true;
-}
-
-const showDetailDialog = ref(false);
-const detailRecord = ref<IncomeRecord | null>(null);
-
-async function viewDetail(record: IncomeRecord) {
-  try {
-    detailRecord.value = await safeInvoke<IncomeRecord>("get_record", { id: record.id });
-    showDetailDialog.value = true;
-    // Preload detail images
-    for (const img of detailRecord.value.images) {
-      loadImageSrc(img.id);
-    }
-  } catch (e: any) {
-    ElMessage.error(e || "加载失败");
-  }
+// ---- Preview wrapper for new images ----
+function previewNewImagesByIndex(idx: number) {
+  previewNewImages(newImages.value.map(img => ({
+    tempId: img.tempId,
+    originalName: img.originalName,
+    previewUrl: img.previewUrl,
+  })), idx);
 }
 </script>
 

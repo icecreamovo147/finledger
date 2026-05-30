@@ -34,8 +34,8 @@ onMounted(async () => {
         // User clicked "暂时忽略"
       }
     }
-  } catch {
-    // integrity check command failed, don't block app
+  } catch (e) {
+    console.warn("数据库完整性检查失败:", e);
   }
 });
 </script>

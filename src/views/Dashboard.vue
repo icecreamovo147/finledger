@@ -119,7 +119,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import VChart from "vue-echarts";
 import { Money, Warning, Document, Clock } from "@element-plus/icons-vue";
 import { use } from "echarts/core";
@@ -158,12 +158,9 @@ const stats = ref<DashboardStats>({
 const rangeMonths = ref<6 | 12>(12);
 const themeStore = useThemeStore();
 
-const incomeTrendData = computed(() =>
-    stats.value.income_trend.slice(-rangeMonths.value),
-);
-const settlementTrendData = computed(() =>
-    stats.value.settlement_trend.slice(-rangeMonths.value),
-);
+// Backend now returns exactly rangeMonths of data — no client-side slice needed.
+const incomeTrendData = computed(() => stats.value.income_trend);
+const settlementTrendData = computed(() => stats.value.settlement_trend);
 const incomeTrendHasData = computed(() =>
     incomeTrendData.value.some((item) => item.total_amount > 0),
 );
@@ -178,8 +175,8 @@ const incomeTrendOption = computed(() => {
         tooltip: {
             trigger: "axis",
             formatter: (params: any) => {
-                const item = params?.[0];
-                if (!item) return "";
+                if (!Array.isArray(params) || !params[0]) return "";
+                const item = params[0];
                 return `${item.axisValue}<br/>收入: ¥${(item.data / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`;
             },
         },
@@ -287,6 +284,7 @@ const chartOption = computed(() => {
             trigger: "axis",
             axisPointer: { type: "shadow" },
             formatter: (p: any) => {
+                if (!Array.isArray(p) || !p[0]) return "";
                 const item = p[0];
                 return `${item.name}<br/>未结清金额: ¥${(item.value / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2 })}`;
             },
@@ -327,12 +325,22 @@ const chartOption = computed(() => {
     };
 });
 
-onMounted(async () => {
+async function fetchStats() {
     try {
-        stats.value = await safeInvoke<DashboardStats>("get_dashboard_stats");
+        stats.value = await safeInvoke<DashboardStats>("get_dashboard_stats", {
+            rangeMonths: rangeMonths.value,
+        });
     } catch {
         // Keep default zero values
     }
+}
+
+onMounted(() => {
+    fetchStats();
+});
+
+watch(rangeMonths, () => {
+    fetchStats();
 });
 </script>
 

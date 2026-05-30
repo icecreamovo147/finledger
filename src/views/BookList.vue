@@ -153,6 +153,7 @@ import type { FormInstance, FormRules } from "element-plus";
 import type { AccountBook, PaginatedBooks } from "@/types";
 import { safeInvoke } from "@/utils/invoke";
 import { usePageHeaderStore } from "@/stores/pageHeader";
+import { useDebounce } from "@/composables/useDebounce";
 
 const router = useRouter();
 const pageHeaderStore = usePageHeaderStore();
@@ -162,7 +163,13 @@ const total = ref(0);
 const currentPage = ref(1);
 const pageSize = ref(10);
 const keyword = ref("");
-let searchTimer: ReturnType<typeof setTimeout> | null = null;
+
+function triggerSearch() {
+  currentPage.value = 1;
+  fetchBooks();
+}
+
+const { run: onSearchInput, flush: onSearchNow } = useDebounce(triggerSearch, 300);
 
 const showDialog = ref(false);
 const isEditing = ref(false);
@@ -188,7 +195,6 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-    if (searchTimer) clearTimeout(searchTimer);
     pageHeaderStore.clearActions();
 });
 
@@ -214,24 +220,9 @@ function handleSizeChange() {
     fetchBooks();
 }
 
-function doSearch() {
-    if (searchTimer) clearTimeout(searchTimer);
-    currentPage.value = 1;
-    fetchBooks();
-}
-
-function onSearchInput() {
-    if (searchTimer) clearTimeout(searchTimer);
-    searchTimer = setTimeout(doSearch, 300);
-}
-
-function onSearchNow() {
-    doSearch();
-}
-
 function onSearchClear() {
     keyword.value = "";
-    doSearch();
+    onSearchNow();
 }
 
 function openCreate() {

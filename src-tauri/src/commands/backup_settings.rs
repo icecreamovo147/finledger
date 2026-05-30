@@ -313,10 +313,10 @@ pub fn apply_retention(settings: &BackupSettings, backups: &[BackupFileInfo]) ->
         .filter(|b| {
             b.backup_type == "auto"
                 && b.is_valid
-                && Path::new(&b.path).parent().map_or(false, |p| {
+                && Path::new(&b.path).parent().is_some_and(|p| {
                     canonical_target
                         .as_ref()
-                        .map_or(false, |ct| p.canonicalize().ok().as_ref() == Some(ct))
+                        .is_some_and(|ct| p.canonicalize().ok().as_ref() == Some(ct))
                 })
         })
         .collect();
@@ -384,12 +384,12 @@ pub async fn update_backup_settings(
             },
             "weekly" => match settings.day_of_week {
                 None => return Err("请选择每周执行日".into()),
-                Some(d) if d < 1 || d > 7 => return Err("每周执行日必须在 1-7 之间".into()),
+                Some(d) if !(1..=7).contains(&d) => return Err("每周执行日必须在 1-7 之间".into()),
                 _ => {}
             },
             "monthly" => match settings.day_of_month {
                 None => return Err("请选择每月执行日".into()),
-                Some(d) if d < 1 || d > 28 => return Err("每月执行日必须在 1-28 之间".into()),
+                Some(d) if !(1..=28).contains(&d) => return Err("每月执行日必须在 1-28 之间".into()),
                 _ => {}
             },
             "daily" => {}

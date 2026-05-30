@@ -84,32 +84,50 @@ export const useThemeStore = defineStore("theme", () => {
     }, 300);
   }, { immediate: true });
 
-  // Listen for system theme changes
+  // Listeners — registered once and torn down via dispose/cleanup.
+  let listenersSetup = false;
   const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  let unlistenTauriTheme: UnlistenFn | null = null;
+
   function onSystemThemeChange(e: MediaQueryListEvent) {
     systemDark.value = e.matches;
   }
-  mediaQuery.addEventListener("change", onSystemThemeChange);
 
-  let unlistenTauriTheme: UnlistenFn | null = null;
-  if (isTauri()) {
-    void getCurrentWindow()
-      .onThemeChanged(({ payload }) => {
-        if (mode.value === "auto") {
-          systemDark.value = payload === "dark";
-        }
-      })
-      .then((unlisten) => {
-        unlistenTauriTheme = unlisten;
-      })
-      .catch((error) => {
-        console.warn("Failed to listen for native theme changes", error);
-      });
+  function setupListeners() {
+    if (listenersSetup) return;
+    listenersSetup = true;
+
+    mediaQuery.addEventListener("change", onSystemThemeChange);
+
+    if (isTauri()) {
+      void getCurrentWindow()
+        .onThemeChanged(({ payload }) => {
+          if (mode.value === "auto") {
+            systemDark.value = payload === "dark";
+          }
+        })
+        .then((unlisten) => {
+          unlistenTauriTheme = unlisten;
+        })
+        .catch((error) => {
+          console.warn("Failed to listen for native theme changes", error);
+        });
+    }
   }
 
-  onScopeDispose(() => {
+  function cleanupListeners() {
     mediaQuery.removeEventListener("change", onSystemThemeChange);
     unlistenTauriTheme?.();
+    unlistenTauriTheme = null;
+    listenersSetup = false;
+  }
+
+  // Register listeners on first store access; Pinia's scope will call
+  // cleanupListeners via onScopeDispose when $dispose() is invoked.
+  setupListeners();
+
+  onScopeDispose(() => {
+    cleanupListeners();
   });
 
   return { mode, systemDark, resolvedTheme, setMode, cycleMode };

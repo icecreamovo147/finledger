@@ -57,6 +57,8 @@ export interface PaginatedBooks {
   books: AccountBook[];
 }
 
+// Field names mirror Rust backend JSON (snake_case). Frontend code uses
+// camelCase refs (e.g. bookTotalUnsettled) after destructuring the response.
 export interface PaginatedRecords {
   total: number;
   total_unsettled: number;

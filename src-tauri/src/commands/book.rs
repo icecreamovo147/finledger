@@ -68,11 +68,11 @@ pub async fn list_books(
     let keyword = keyword.filter(|k| !k.trim().is_empty());
     let search_pattern = keyword.as_ref().map(|k| format!("%{}%", escape_like(k.trim())));
 
-    let total: (i64,) = if search_pattern.is_some() {
+    let total: (i64,) = if let Some(ref pat) = search_pattern {
         sqlx::query_as(
             "SELECT COUNT(*) FROM account_books WHERE name LIKE ?1 ESCAPE '\\' OR remark LIKE ?1 ESCAPE '\\'",
         )
-        .bind(search_pattern.as_ref().unwrap())
+        .bind(pat)
         .fetch_one(&pool)
         .await
         .map_err(|e| e.to_string())?

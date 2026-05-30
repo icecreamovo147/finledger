@@ -500,7 +500,7 @@ async fn rollback_all(
     // Reconnect pool
     if let Ok(rollback_pool) = SqlitePoolOptions::new()
         .max_connections(5)
-        .connect_with(sqlite_options(&db_path))
+        .connect_with(sqlite_options(db_path))
         .await
     {
         db.replace_pool(rollback_pool).await;

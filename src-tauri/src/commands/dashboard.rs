@@ -7,6 +7,7 @@ use tauri::State;
 pub async fn get_dashboard_stats(
     db: State<'_, DbState>,
     token: String,
+    range_months: Option<i64>,
 ) -> Result<DashboardStats, String> {
     db.validate_token(&token).await?;
     let pool = db.get_pool().await?;
@@ -52,9 +53,10 @@ pub async fn get_dashboard_stats(
     .await
     .map_err(|e| e.to_string())?;
 
-    // Build recent 12 month keys and query trends
-    let month_keys = build_recent_month_keys(12, &now);
-    let month_start_12 = format!("{}-01", month_keys.first().unwrap());
+    // Build recent N month keys and query trends
+    let months = range_months.unwrap_or(12).clamp(1, 60);
+    let month_keys = build_recent_month_keys(months, &now);
+    let trend_start = format!("{}-01", month_keys.first().unwrap());
 
     let income_rows: Vec<(String, Option<i64>)> = sqlx::query_as(
         r#"
@@ -65,7 +67,7 @@ pub async fn get_dashboard_stats(
         ORDER BY month
         "#,
     )
-    .bind(&month_start_12)
+    .bind(&trend_start)
     .fetch_all(&pool)
     .await
     .map_err(|e| e.to_string())?;
@@ -82,7 +84,7 @@ pub async fn get_dashboard_stats(
         ORDER BY month
         "#,
     )
-    .bind(&month_start_12)
+    .bind(&trend_start)
     .fetch_all(&pool)
     .await
     .map_err(|e| e.to_string())?;

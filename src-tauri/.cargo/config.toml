@@ -1,0 +1,2 @@
+# Build config shared across macOS and Windows.
+# Linker optimizations are platform-specific — set per-target if needed.

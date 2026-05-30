@@ -130,7 +130,7 @@ async fn write_export_sheet(
             .unwrap_or_default();
 
         if !images.is_empty() {
-            let image_rows = ((images.len() + 2) / 3) as f64;
+            let image_rows = images.len().div_ceil(3) as f64;
             sheet
                 .set_row_height(r, f64::max(text_height, image_rows * 58.0))
                 .map_err(|e| e.to_string())?;

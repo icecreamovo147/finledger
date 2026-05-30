@@ -146,7 +146,7 @@ impl Default for BackupSettings {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct BackupRunState {
     pub last_run_at: Option<String>,
     pub last_success_at: Option<String>,
@@ -157,18 +157,6 @@ pub struct BackupRunState {
     pub last_auto_run_at: Option<String>,
 }
 
-impl Default for BackupRunState {
-    fn default() -> Self {
-        Self {
-            last_run_at: None,
-            last_success_at: None,
-            last_status: None,
-            last_message: None,
-            last_backup_path: None,
-            last_auto_run_at: None,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BackupFileInfo {

@@ -16,6 +16,12 @@ pub struct BackupSchedulerState {
     pub handle: Mutex<Option<BackupSchedulerHandle>>,
 }
 
+impl Default for BackupSchedulerState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BackupSchedulerState {
     pub fn new() -> Self {
         Self {
@@ -296,7 +302,7 @@ async fn run_scheduler(
         } else if is_interval {
             // For intervals, sleep for a fraction of the interval to stay responsive
             let interval_secs = (settings.interval_minutes.unwrap_or(60) as u64) * 60;
-            let sleep_secs = (interval_secs / 4).max(30).min(300);
+            let sleep_secs = (interval_secs / 4).clamp(30, 300);
             std::time::Duration::from_secs(sleep_secs)
         } else {
             // Time-of-day based: compute sleep until next target
