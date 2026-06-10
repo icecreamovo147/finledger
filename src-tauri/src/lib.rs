@@ -12,6 +12,10 @@ use std::sync::Mutex;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
+use tracing_appender::non_blocking::WorkerGuard;
+
+/// 持有日志 WorkerGuard，确保退出时 flush 缓冲区
+pub struct LogGuard(pub Option<WorkerGuard>);
 
 #[cfg(not(target_os = "macos"))]
 use tauri::tray::{MouseButton, MouseButtonState};
@@ -22,7 +26,22 @@ use tauri_plugin_dialog::{
     DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult,
 };
 
-pub struct LoginAttempts(pub Mutex<HashMap<String, (u32, chrono::DateTime<chrono::Utc>)>>);
+pub struct LoginAttempts(Mutex<HashMap<String, (u32, chrono::DateTime<chrono::Utc>)>>);
+
+impl LoginAttempts {
+    /// 安全地获取锁，自动从中毒状态恢复。
+    pub fn lock(
+        &self,
+    ) -> std::sync::MutexGuard<'_, HashMap<String, (u32, chrono::DateTime<chrono::Utc>)>> {
+        match self.0.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!(target: "finledger", "LoginAttempts Mutex 已中毒，自动恢复");
+                poisoned.into_inner()
+            }
+        }
+    }
+}
 const TRAY_MENU_OPEN_ID: &str = "tray_open_main";
 #[cfg(target_os = "macos")]
 const TRAY_MENU_HIDE_ID: &str = "tray_hide_main";
@@ -30,6 +49,7 @@ const TRAY_MENU_EXIT_ID: &str = "tray_exit_app";
 
 #[tauri::command]
 fn exit_app(app: AppHandle) {
+    // LogGuard 的 WorkerGuard drop 时会自动 flush 日志缓冲区
     app.exit(0);
 }
 
@@ -73,6 +93,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(LoginAttempts(Mutex::new(HashMap::new())))
         .manage(BackupSchedulerState::new())
+        .manage(LogGuard(None))
         .setup(|app| {
             let app_dir = app
                 .path()
@@ -81,7 +102,8 @@ pub fn run() {
             std::fs::create_dir_all(&app_dir).ok();
             std::fs::create_dir_all(app_dir.join("images")).ok();
 
-            logger::init(&app_dir);
+            let guard = logger::init(&app_dir);
+            app.manage(LogGuard(guard));
             tracing::info!(target: "finledger", "FinLedger 启动，数据目录: {}", app_dir.display());
 
             let db_path = app_dir.join("finledger.db");
@@ -119,21 +141,80 @@ pub fn run() {
                 }
             }
 
-            let db = DbState::new(pool, app_dir);
+            let db = DbState::new(pool, app_dir.clone());
             tauri::async_runtime::block_on(async {
                 tracing::info!(target: "finledger", "开始数据库迁移...");
+                // run_migrations 内部会在迁移后做完整性检查，异常时直接返回 error
                 db.run_migrations().await.expect("failed to run migrations");
                 tracing::info!(target: "finledger", "数据库迁移完成");
+                // 二次确认完整性（run_migrations 已检查过，此处为防御性检查）
                 if let Some(err) = db.check_integrity().await {
-                    tracing::error!(target: "finledger", "数据库完整性检测异常: {}", err);
+                    panic!("数据库完整性检测异常，应用无法启动: {}", err);
                 }
             });
 
             // Start backup scheduler if configured
-            let backup_settings = commands::backup_settings::get_backup_settings_sync(&db);
+            let mut backup_settings = commands::backup_settings::get_backup_settings_sync(&db);
+            // 首次启动：配置文件不存在时，自动创建默认备份目录并写入默认配置
+            let settings_file = app_dir.join("backup_settings.json");
+            if !settings_file.exists() {
+                let default_backup_dir = app_dir.join("backups");
+                if let Err(e) = std::fs::create_dir_all(&default_backup_dir) {
+                    tracing::warn!(target: "finledger", "无法创建默认备份目录 {}: {}", default_backup_dir.display(), e);
+                } else {
+                    backup_settings.target_dir =
+                        Some(default_backup_dir.to_string_lossy().to_string());
+                    if let Err(e) = commands::backup_settings::save_settings(
+                        &app_dir,
+                        &backup_settings,
+                    ) {
+                        tracing::warn!(target: "finledger", "无法保存默认备份配置: {}", e);
+                    } else {
+                        tracing::info!(target: "finledger", "已创建默认备份配置: 每{}分钟自动备份到 {}",
+                            backup_settings.interval_minutes.unwrap_or(30),
+                            default_backup_dir.display());
+                    }
+                }
+            }
             let db_for_scheduler = db.clone();
+            let db_for_cleanup = db.clone();
             app.manage(db);
             let app_handle = app.handle().clone();
+            // 启动时异步清理孤儿图片记录
+            tauri::async_runtime::spawn(async move {
+                match commands::record::do_check_image_consistency(&db_for_cleanup).await {
+                    Ok(orphans) if !orphans.is_empty() => {
+                        tracing::info!(target: "finledger", "启动时检测到 {} 个孤儿图片记录，开始清理", orphans.len());
+                        let pool = match db_for_cleanup.get_pool().await {
+                            Ok(p) => p,
+                            Err(e) => {
+                                tracing::warn!(target: "finledger", "启动时清理孤儿图片失败(获取连接池): {}", e);
+                                return;
+                            }
+                        };
+                        if let Ok(mut tx) = pool.begin().await {
+                            let mut cleaned = 0u64;
+                            for orphan in &orphans {
+                                if sqlx::query("DELETE FROM income_images WHERE id = ?1")
+                                    .bind(orphan.id)
+                                    .execute(&mut *tx)
+                                    .await
+                                    .is_ok()
+                                {
+                                    cleaned += 1;
+                                }
+                            }
+                            if tx.commit().await.is_ok() {
+                                tracing::info!(target: "finledger", "启动时清理孤儿图片完成: {} 条", cleaned);
+                            }
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::warn!(target: "finledger", "启动时检查图片一致性失败: {}", e);
+                    }
+                }
+            });
             tauri::async_runtime::spawn(async move {
                 let scheduler = app_handle.state::<BackupSchedulerState>();
                 scheduler.restart(&db_for_scheduler, backup_settings).await;
@@ -264,15 +345,15 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| {
+        .run(|_app_handle, _event| {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen {
                 has_visible_windows,
                 ..
-            } = event
+            } = _event
             {
                 if !has_visible_windows {
-                    show_main_window(app_handle);
+                    show_main_window(_app_handle);
                 }
             }
         });

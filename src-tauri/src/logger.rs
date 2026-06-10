@@ -1,18 +1,16 @@
 use std::path::Path;
+use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::fmt::time::LocalTime;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-pub fn init(app_data_dir: &Path) {
+pub fn init(app_data_dir: &Path) -> Option<WorkerGuard> {
     let log_dir = app_data_dir.join("logs");
     let _ = std::fs::create_dir_all(&log_dir);
 
     let file_appender = tracing_appender::rolling::hourly(&log_dir, "finledger.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-
-    // Leak the guard so it lives for the lifetime of the process
-    std::mem::forget(_guard);
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("info"));
@@ -32,4 +30,6 @@ pub fn init(app_data_dir: &Path) {
         .with(stderr_layer)
         .with(file_layer)
         .init();
+
+    Some(guard)
 }

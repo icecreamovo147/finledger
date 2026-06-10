@@ -11,18 +11,25 @@ pub async fn do_init_admin(db: &DbState, username: &str, password: &str) -> Resu
     if username.trim().is_empty() || password.trim().is_empty() {
         return Err("用户名和密码不能为空".into());
     }
-    let needs = db.needs_init().await.map_err(|e| e.to_string())?;
-    if !needs {
-        return Err("系统已初始化，无法重复创建管理员".into());
-    }
     let hash = bcrypt::hash(password.as_bytes(), 12).map_err(|e| e.to_string())?;
     let pool = db.get_pool().await?;
+    // 在事务内先检查再插入，消除 TOCTOU 竞态窗口
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    if count.0 > 0 {
+        tx.rollback().await.map_err(|e| e.to_string())?;
+        return Err("系统已初始化，无法重复创建管理员".into());
+    }
     sqlx::query("INSERT INTO users (username, password_hash) VALUES (?1, ?2)")
         .bind(username.trim())
         .bind(&hash)
-        .execute(&pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
     info!("管理员账号已创建: {}", username.trim());
     Ok(())
 }
@@ -95,22 +102,25 @@ pub async fn do_change_password(
         return Err("新密码不能为空".into());
     }
     let pool = db.get_pool().await?;
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
     let row: Option<(String,)> = sqlx::query_as("SELECT password_hash FROM users WHERE id = ?1")
         .bind(user_id)
-        .fetch_optional(&pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
     let (hash,) = row.ok_or("用户不存在")?;
     if !bcrypt::verify(old_password.as_bytes(), &hash).unwrap_or(false) {
+        tx.rollback().await.map_err(|e| e.to_string())?;
         return Err("旧密码错误".into());
     }
     let new_hash = bcrypt::hash(new_password.as_bytes(), 12).map_err(|e| e.to_string())?;
     sqlx::query("UPDATE users SET password_hash = ?1 WHERE id = ?2")
         .bind(&new_hash)
         .bind(user_id)
-        .execute(&pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -150,7 +160,7 @@ pub async fn login(
     remember: bool,
 ) -> Result<LoginResult, String> {
     {
-        let attempts = login_attempts.0.lock().unwrap();
+        let attempts = login_attempts.lock();
         if let Some((count, until)) = attempts.get(&username) {
             if *count >= 5 && Utc::now() < *until {
                 let remaining = (*until - Utc::now()).num_minutes();
@@ -183,7 +193,7 @@ pub async fn login(
     }
 
     {
-        login_attempts.0.lock().unwrap().remove(&username);
+        login_attempts.lock().remove(&username);
     }
 
     let token = Uuid::new_v4().to_string();
@@ -214,7 +224,7 @@ pub async fn login(
 }
 
 fn record_failed_attempt(attempts: &crate::LoginAttempts, username: &str) {
-    let mut map = attempts.0.lock().unwrap();
+    let mut map = attempts.lock();
     let entry = map.entry(username.to_string()).or_insert((0, Utc::now()));
     entry.0 += 1;
     if entry.0 >= 5 {
@@ -254,11 +264,13 @@ pub async fn validate_session(db: State<'_, DbState>, token: String) -> Result<U
         .map_err(|_| "日期解析错误".to_string())?;
 
     if Utc::now().naive_utc() > expires {
-        sqlx::query("DELETE FROM sessions WHERE token = ?1")
+        if let Err(e) = sqlx::query("DELETE FROM sessions WHERE token = ?1")
             .bind(&token)
             .execute(&pool)
             .await
-            .ok();
+        {
+            warn!("清理过期会话失败: {}", e);
+        }
         return Err("会话已过期".into());
     }
 

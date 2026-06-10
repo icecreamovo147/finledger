@@ -367,14 +367,17 @@ pub async fn do_update_record(
     remark: Option<String>,
 ) -> Result<(), String> {
     let pool = db.get_pool().await?;
+    // 使用事务包裹 SELECT + UPDATE，消除 TOCTOU 窗口
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
     let status: Option<(String,)> =
         sqlx::query_as("SELECT settlement_status FROM income_records WHERE id = ?1")
             .bind(id)
-            .fetch_optional(&pool)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(|e| e.to_string())?;
     let (current_status,) = status.ok_or("记录不存在")?;
     if current_status == "settled" {
+        tx.rollback().await.map_err(|e| e.to_string())?;
         return Err("已结清记录不可修改".into());
     }
     validate_record_fields(&date, &service_content, quantity, unit_price, total_amount)?;
@@ -386,7 +389,7 @@ pub async fn do_update_record(
         r#"UPDATE income_records SET
         date = ?1, service_content = ?2, specification = ?3, quantity = ?4, unit = ?5, unit_price = ?6,
         total_amount = ?7, remark = ?8, updated_at = ?9
-        WHERE id = ?10"#,
+        WHERE id = ?10 AND settlement_status = 'unsettled'"#,
     )
     .bind(&date)
     .bind(&service_content)
@@ -398,35 +401,41 @@ pub async fn do_update_record(
     .bind(&remark)
     .bind(&now)
     .bind(id)
-    .execute(&pool)
+    .execute(&mut *tx)
     .await
     .map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
 pub async fn do_delete_record(db: &DbState, id: i64) -> Result<(), String> {
     let pool = db.get_pool().await?;
+
+    // 在事务中完成所有数据库操作，消除 TOCTOU 窗口
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+    // 在事务内检查结算状态
     let status: Option<(String,)> =
         sqlx::query_as("SELECT settlement_status FROM income_records WHERE id = ?1")
             .bind(id)
-            .fetch_optional(&pool)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(|e| e.to_string())?;
     let (current_status,) = status.ok_or("记录不存在")?;
     if current_status == "settled" {
+        tx.rollback().await.map_err(|e| e.to_string())?;
         return Err("已结清记录不可删除".into());
     }
 
-    // Query image paths before deletion
+    // 在事务内查询图片路径
     let images: Vec<(String,)> =
         sqlx::query_as("SELECT file_path FROM income_images WHERE record_id = ?1")
             .bind(id)
-            .fetch_all(&pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(|e| e.to_string())?;
 
-    // Delete DB rows in a transaction first
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    // 删除图片记录和收入记录（在同一个事务中）
     sqlx::query("DELETE FROM income_images WHERE record_id = ?1")
         .bind(id)
         .execute(&mut *tx)
@@ -883,8 +892,17 @@ fn save_session_manifest(
     };
     if let Ok(json) = serde_json::to_string(manifest) {
         let tmp = path.with_extension("json.tmp");
-        let _ = std::fs::write(&tmp, &json);
-        let _ = std::fs::rename(&tmp, &path);
+        if let Err(e) = std::fs::write(&tmp, &json) {
+            warn!("警告: 写入暂存 manifest 临时文件失败: {}", e);
+            return;
+        }
+        if let Err(e) = std::fs::rename(&tmp, &path) {
+            warn!("警告: 暂存 manifest 原子替换失败: {}", e);
+            // 尝试直接写入作为兜底
+            if let Err(e2) = std::fs::write(&path, &json) {
+                warn!("警告: 暂存 manifest 兜底写入也失败: {}", e2);
+            }
+        }
     }
 }
 
@@ -1438,21 +1456,36 @@ pub async fn check_attachment_consistency(
 #[tauri::command]
 pub async fn cleanup_orphan_images(db: State<'_, DbState>, token: String) -> Result<u64, String> {
     db.validate_token(&token).await?;
-    let orphans = do_check_image_consistency(&db).await?;
-    let count = orphans.len() as u64;
+    let pool = db.get_pool().await?;
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 
-    if count > 0 {
-        let pool = db.get_pool().await?;
-        let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
-        for orphan in &orphans {
-            sqlx::query("DELETE FROM income_images WHERE id = ?1")
-                .bind(orphan.id)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| e.to_string())?;
+    // 在事务内查询并删除孤儿图片，消除 TOCTOU 窗口
+    let rows: Vec<(i64, i64, String)> =
+        sqlx::query_as("SELECT id, record_id, file_path FROM income_images")
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+
+    let mut orphan_ids = Vec::new();
+    for (id, _record_id, file_path) in &rows {
+        let is_orphan = match resolve_image_path(&db, file_path) {
+            Ok(full_path) => !full_path.exists(),
+            Err(_) => true,
+        };
+        if is_orphan {
+            orphan_ids.push(*id);
         }
-        tx.commit().await.map_err(|e| e.to_string())?;
     }
+
+    let count = orphan_ids.len() as u64;
+    for id in &orphan_ids {
+        sqlx::query("DELETE FROM income_images WHERE id = ?1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    tx.commit().await.map_err(|e| e.to_string())?;
 
     Ok(count)
 }

@@ -1,6 +1,7 @@
 use crate::db::DbState;
 use tracing::info;
 use rust_xlsxwriter::{Format, FormatAlign, Image, Workbook};
+use std::collections::HashMap;
 use tauri::State;
 
 type RecordRow = (
@@ -19,7 +20,7 @@ async fn write_export_sheet(
     db: &crate::db::DbState,
     workbook: &mut Workbook,
     rows: &[RecordRow],
-    pool: &sqlx::SqlitePool,
+    images_map: &HashMap<i64, Vec<String>>,
 ) -> Result<(), String> {
     let sheet = workbook.add_worksheet();
 
@@ -123,12 +124,10 @@ async fn write_export_sheet(
         .unwrap_or(0);
         let text_height = (max_newlines + 1) as f64 * 15.0;
 
-        let images: Vec<(String,)> =
-            sqlx::query_as("SELECT file_path FROM income_images WHERE record_id = ?1 ORDER BY id")
-                .bind(record_id)
-                .fetch_all(pool)
-                .await
-                .map_err(|e| e.to_string())?;
+        let images: Vec<&String> = images_map
+            .get(record_id)
+            .map(|v| v.iter().collect())
+            .unwrap_or_default();
 
         if !images.is_empty() {
             let image_rows = ((images.len() + 2) / 3) as f64;
@@ -137,7 +136,7 @@ async fn write_export_sheet(
                 .map_err(|e| e.to_string())?;
 
             let mut embedded_count = 0;
-            for (img_idx, (file_path,)) in images.iter().enumerate() {
+            for (img_idx, file_path) in images.iter().enumerate() {
                 let full_path = match crate::commands::record::resolve_image_path(db, file_path) {
                     Ok(p) if p.exists() => p,
                     _ => continue,
@@ -191,6 +190,35 @@ async fn write_export_sheet(
 
 // ===== Internal helpers (take &DbState, testable without Tauri) =====
 
+/// 批量查询指定记录的图片路径，避免 N+1 查询问题。
+async fn load_images_map(
+    pool: &sqlx::SqlitePool,
+    record_ids: &[i64],
+) -> Result<HashMap<i64, Vec<String>>, String> {
+    if record_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let placeholders: Vec<String> = record_ids
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("?{}", i + 1))
+        .collect();
+    let query = format!(
+        "SELECT record_id, file_path FROM income_images WHERE record_id IN ({}) ORDER BY record_id, id",
+        placeholders.join(", ")
+    );
+    let mut q = sqlx::query_as::<_, (i64, String)>(&query);
+    for id in record_ids {
+        q = q.bind(id);
+    }
+    let rows = q.fetch_all(pool).await.map_err(|e| e.to_string())?;
+    let mut map: HashMap<i64, Vec<String>> = HashMap::new();
+    for (record_id, file_path) in rows {
+        map.entry(record_id).or_default().push(file_path);
+    }
+    Ok(map)
+}
+
 pub async fn do_export_excel(
     db: &DbState,
     book_id: i64,
@@ -243,8 +271,11 @@ pub async fn do_export_excel(
     }
     let rows = dq.fetch_all(&pool).await.map_err(|e| e.to_string())?;
 
+    let record_ids: Vec<i64> = rows.iter().map(|r| r.0).collect();
+    let images_map = load_images_map(&pool, &record_ids).await?;
+
     let mut workbook = Workbook::new();
-    write_export_sheet(db, &mut workbook, &rows, &pool).await?;
+    write_export_sheet(db, &mut workbook, &rows, &images_map).await?;
     workbook.save(save_path).map_err(|e| e.to_string())?;
     info!("导出完成: {} 条记录 -> {}", rows.len(), save_path);
     Ok(save_path.to_string())
@@ -269,8 +300,11 @@ pub async fn do_export_all_unsettled(
         return Err("该账本没有未结清记录".into());
     }
 
+    let record_ids: Vec<i64> = rows.iter().map(|r| r.0).collect();
+    let images_map = load_images_map(&pool, &record_ids).await?;
+
     let mut workbook = Workbook::new();
-    write_export_sheet(db, &mut workbook, &rows, &pool).await?;
+    write_export_sheet(db, &mut workbook, &rows, &images_map).await?;
     workbook.save(save_path).map_err(|e| e.to_string())?;
     Ok(save_path.to_string())
 }

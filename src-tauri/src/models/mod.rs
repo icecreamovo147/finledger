@@ -131,13 +131,13 @@ pub struct BackupSettings {
 impl Default for BackupSettings {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             target_dir: None,
-            frequency: "daily".into(),
+            frequency: "interval_minutes".into(),
             time_of_day: "23:00".into(),
             day_of_week: None,
             day_of_month: None,
-            interval_minutes: None,
+            interval_minutes: Some(30),
             retention_mode: "count".into(),
             retention_count: 10,
             retention_days: 30,

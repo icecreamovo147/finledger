@@ -615,9 +615,12 @@ impl DbState {
             info!("迁移 11 (add_check_constraints) 已应用");
         }
 
-        // Post-migration integrity check
+        // Post-migration integrity check — fail hard if corrupted
         if let Some(err) = self.check_integrity().await {
-            error!("迁移后完整性检测异常: {}", err);
+            error!("迁移后完整性检测异常，阻止应用继续运行: {}", err);
+            return Err(sqlx::Error::Protocol(
+                format!("数据库完整性检测异常，请从备份恢复: {}", err),
+            ));
         }
 
         // Clean up pre-migration backup on success
@@ -652,11 +655,13 @@ impl DbState {
         let now = chrono::Utc::now().naive_utc();
 
         if now > expires {
-            sqlx::query("DELETE FROM sessions WHERE token = ?1")
+            if let Err(e) = sqlx::query("DELETE FROM sessions WHERE token = ?1")
                 .bind(token)
                 .execute(&pool)
                 .await
-                .ok();
+            {
+                warn!("清理过期会话失败 (token 已拒绝): {}", e);
+            }
             return Err(AUTH_REQUIRED.into());
         }
 

@@ -620,6 +620,25 @@ pub async fn do_backup_with_type(
         e
     })?;
 
+    // 对备份副本做完整性校验，确保备份数据本身是完好的
+    let tmp_options = sqlite_options(&tmp_db);
+    if let Ok(tmp_pool) = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(tmp_options)
+        .await
+    {
+        let check: Vec<(String,)> = sqlx::query_as("PRAGMA integrity_check")
+            .fetch_all(&tmp_pool)
+            .await
+            .unwrap_or_default();
+        if !check.iter().all(|(v,)| v == "ok") {
+            tmp_pool.close().await;
+            cleanup_dir(&tmp_dir);
+            return Err("备份副本完整性校验失败，备份中止".into());
+        }
+        tmp_pool.close().await;
+    }
+
     let manifest = BackupManifest {
         backup_format_version: 1,
         app: "FinLedger".into(),
