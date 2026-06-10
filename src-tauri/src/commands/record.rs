@@ -193,6 +193,7 @@ pub fn bytes_to_data_url(bytes: &[u8], original_name: &str) -> String {
     format!("data:{};base64,{}", mime, b64)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn do_list_records(
     db: &DbState,
     book_id: i64,
@@ -340,6 +341,7 @@ pub async fn do_list_records(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn do_update_record(
     db: &DbState,
     id: i64,
@@ -448,6 +450,7 @@ pub async fn do_delete_record(db: &DbState, id: i64) -> Result<(), String> {
 // ===== Tauri command wrappers =====
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn create_record(
     db: State<'_, DbState>,
     token: String,
@@ -517,6 +520,7 @@ pub async fn create_record(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn list_records(
     db: State<'_, DbState>,
     token: String,
@@ -575,6 +579,7 @@ pub async fn get_record(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn update_record(
     db: State<'_, DbState>,
     token: String,

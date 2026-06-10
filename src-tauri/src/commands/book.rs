@@ -5,6 +5,8 @@ use crate::models::{AccountBook, PaginatedBooks};
 use crate::utils::escape_like;
 use tauri::State;
 
+type BookSummaryRow = (i64, String, String, String, String, Option<i64>, Option<i64>);
+
 #[tauri::command]
 pub async fn create_book(
     db: State<'_, DbState>,
@@ -108,7 +110,7 @@ pub async fn list_books(
             .map_err(|e| e.to_string())?
     };
 
-    let books: Vec<(i64, String, String, String, String, Option<i64>, Option<i64>)> =
+    let books: Vec<BookSummaryRow> =
         if let Some(ref pat) = search_pattern {
             sqlx::query_as(&data_sql)
                 .bind(pat)
@@ -156,7 +158,7 @@ pub async fn get_book(
     db.validate_token(&token).await?;
     let pool = db.get_pool().await?;
 
-    let book: Option<(i64, String, String, String, String, Option<i64>, Option<i64>)> =
+    let book: Option<BookSummaryRow> =
         sqlx::query_as(
             r#"
             SELECT

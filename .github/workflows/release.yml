@@ -57,18 +57,31 @@ jobs:
         run: npm ci && npm run build
 
       - name: Build Tauri app
-        run: npm run tauri build -- --bundles dmg,zip
+        run: npm run tauri build -- --target ${{ matrix.target }} --bundles dmg
         if: runner.os == 'macOS'
 
+      - name: Create macOS ZIP
+        if: runner.os == 'macOS'
+        run: |
+          APP_PATH="$(find src-tauri/target/${{ matrix.target }}/release/bundle/macos -maxdepth 1 -name '*.app' -print -quit)"
+          test -n "$APP_PATH"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" \
+            "src-tauri/target/${{ matrix.target }}/release/bundle/FinLedger-${{ matrix.target }}.zip"
+
       - name: Build Tauri app
-        run: npm run tauri build -- --bundles msi,nsis
+        run: npm run tauri build -- --target ${{ matrix.target }} --bundles msi,nsis
         if: runner.os == 'Windows'
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: finledger-${{ matrix.target }}
-          path: src-tauri/target/release/bundle/
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.zip
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
+          if-no-files-found: error
 
   release:
     name: Create Release

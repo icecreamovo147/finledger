@@ -255,7 +255,7 @@ pub fn run() {
                         } = _event
                         {
                             if button == MouseButton::Left && button_state == MouseButtonState::Up {
-                                show_main_window(&_tray_icon.app_handle());
+                                show_main_window(_tray_icon.app_handle());
                             }
                         }
                     }

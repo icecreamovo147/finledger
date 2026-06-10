@@ -341,6 +341,7 @@ fn clean_staging_session(db: &DbState, session_id: &str) {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn create_record_with_staged_images(
     db: State<'_, DbState>,
     token: String,
@@ -471,6 +472,7 @@ pub async fn create_record_with_staged_images(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn update_record_with_staged_images(
     db: State<'_, DbState>,
     token: String,

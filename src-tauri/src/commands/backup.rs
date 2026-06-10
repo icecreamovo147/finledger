@@ -461,6 +461,7 @@ async fn restore_db_and_images(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn rollback_all(
     db: &DbState,
     db_path: &Path,
@@ -605,9 +606,8 @@ pub async fn do_backup_with_type(
     let tmp_images = tmp_dir.join("images");
     let images_count = if db.images_dir.exists() {
         std::fs::create_dir_all(&tmp_images).map_err(|e| e.to_string())?;
-        copy_dir_recursive(&db.images_dir, &tmp_images).map_err(|e| {
+        copy_dir_recursive(&db.images_dir, &tmp_images).inspect_err(|_| {
             cleanup_dir(&tmp_dir);
-            e
         })?;
         count_files_in_dir(&tmp_images)
     } else {
@@ -615,9 +615,8 @@ pub async fn do_backup_with_type(
         0
     };
 
-    let db_sha256 = compute_sha256(&tmp_db).map_err(|e| {
+    let db_sha256 = compute_sha256(&tmp_db).inspect_err(|_| {
         cleanup_dir(&tmp_dir);
-        e
     })?;
 
     // 对备份副本做完整性校验，确保备份数据本身是完好的
@@ -678,9 +677,8 @@ pub async fn do_backup_with_type(
     std::io::copy(&mut db_file, &mut zip_writer).map_err(|e| e.to_string())?;
 
     if db.images_dir.exists() {
-        add_dir_to_zip(&mut zip_writer, &db.images_dir, "images").map_err(|e| {
+        add_dir_to_zip(&mut zip_writer, &db.images_dir, "images").inspect_err(|_| {
             cleanup_dir(&tmp_dir);
-            e
         })?;
     }
 

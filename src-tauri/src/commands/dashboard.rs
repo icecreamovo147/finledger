@@ -3,6 +3,8 @@ use crate::models::{BookRanking, DashboardStats, MonthlyIncome, MonthlySettlemen
 use chrono::Datelike;
 use tauri::State;
 
+type MonthlyTrendRow = (String, Option<i64>, Option<i64>, Option<i64>);
+
 #[tauri::command]
 pub async fn get_dashboard_stats(
     db: State<'_, DbState>,
@@ -52,7 +54,7 @@ pub async fn get_dashboard_stats(
     let month_keys = build_recent_month_keys(months, &now);
     let trend_start = format!("{}-01", month_keys.first().unwrap());
 
-    let trend_rows: Vec<(String, Option<i64>, Option<i64>, Option<i64>)> = sqlx::query_as(
+    let trend_rows: Vec<MonthlyTrendRow> = sqlx::query_as(
         r#"
         SELECT
             strftime('%Y-%m', date) AS month,
