@@ -5,12 +5,40 @@ use tauri::State;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+// ===== Credential / password validation =====
+
+/// Validate username + password at registration / admin-init time.
+fn validate_credentials(username: &str, password: &str) -> Result<(), String> {
+    let username = username.trim();
+    if username.is_empty() {
+        return Err("用户名不能为空".into());
+    }
+    if username.len() < 2 {
+        return Err("用户名至少需要 2 个字符".into());
+    }
+    validate_password_strength(password)
+}
+
+/// Enforce minimum password complexity: length ≥ 6, at least one letter + one digit.
+fn validate_password_strength(password: &str) -> Result<(), String> {
+    if password.trim().is_empty() {
+        return Err("密码不能为空".into());
+    }
+    if password.len() < 6 {
+        return Err("密码长度至少 6 位".into());
+    }
+    let has_letter = password.chars().any(|c| c.is_ascii_alphabetic());
+    let has_digit = password.chars().any(|c| c.is_ascii_digit());
+    if !has_letter || !has_digit {
+        return Err("密码必须同时包含字母和数字".into());
+    }
+    Ok(())
+}
+
 // ===== Internal helpers (take &DbState, testable without Tauri) =====
 
 pub async fn do_init_admin(db: &DbState, username: &str, password: &str) -> Result<(), String> {
-    if username.trim().is_empty() || password.trim().is_empty() {
-        return Err("用户名和密码不能为空".into());
-    }
+    validate_credentials(username, password)?;
     let hash = bcrypt::hash(password.as_bytes(), 12).map_err(|e| e.to_string())?;
     let pool = db.get_pool().await?;
     // 在事务内先检查再插入，消除 TOCTOU 竞态窗口
@@ -52,9 +80,7 @@ pub async fn do_list_users(db: &DbState) -> Result<Vec<User>, String> {
 }
 
 pub async fn do_create_user(db: &DbState, username: &str, password: &str) -> Result<(), String> {
-    if username.trim().is_empty() || password.trim().is_empty() {
-        return Err("用户名和密码不能为空".into());
-    }
+    validate_credentials(username, password)?;
     let hash = bcrypt::hash(password.as_bytes(), 12).map_err(|e| e.to_string())?;
     let pool = db.get_pool().await?;
     sqlx::query("INSERT INTO users (username, password_hash) VALUES (?1, ?2)")
@@ -98,9 +124,7 @@ pub async fn do_change_password(
     old_password: &str,
     new_password: &str,
 ) -> Result<(), String> {
-    if new_password.trim().is_empty() {
-        return Err("新密码不能为空".into());
-    }
+    validate_password_strength(new_password)?;
     let pool = db.get_pool().await?;
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
     let row: Option<(String,)> = sqlx::query_as("SELECT password_hash FROM users WHERE id = ?1")
@@ -335,9 +359,7 @@ pub async fn admin_reset_password(
     if current_user_id != 1 {
         return Err("仅管理员可重置他人密码".into());
     }
-    if new_password.trim().is_empty() {
-        return Err("新密码不能为空".into());
-    }
+    validate_password_strength(&new_password)?;
     let new_hash = bcrypt::hash(new_password.as_bytes(), 12).map_err(|e| e.to_string())?;
     let pool = db.get_pool().await?;
     let result = sqlx::query("UPDATE users SET password_hash = ?1 WHERE id = ?2")

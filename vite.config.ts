@@ -30,4 +30,8 @@ export default defineConfig(async () => ({
       clientFiles: ["./src/views/Dashboard.vue", "./src/views/BookList.vue", "./src/App.vue"],
     },
   },
+  test: {
+    environment: "jsdom",
+    globals: true,
+  },
 }));

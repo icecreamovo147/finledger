@@ -294,12 +294,15 @@ async fn run_scheduler(
                     let _ = save_run_state(&db.app_data_dir, &run_state);
                 }
             }
+
+            // After a backup attempt, immediately recalculate next run time
+            // instead of sleeping a fixed 60s. This ensures the next sleep
+            // aligns with the actual schedule (e.g. next day/week/month).
+            continue;
         }
 
-        // Calculate sleep duration
-        let sleep_duration = if should_run {
-            std::time::Duration::from_secs(60)
-        } else if is_interval {
+        // Calculate sleep duration (only reached when should_run is false)
+        let sleep_duration = if is_interval {
             // For intervals, sleep for a fraction of the interval to stay responsive
             let interval_secs = (settings.interval_minutes.unwrap_or(60) as u64) * 60;
             let sleep_secs = (interval_secs / 4).clamp(30, 300);

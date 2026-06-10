@@ -1,3 +1,4 @@
+use finledger_lib::commands::attachment_check;
 use finledger_lib::commands::record;
 use finledger_lib::db::{sqlite_options, DbState};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -130,7 +131,7 @@ async fn test_consistency_check_detects_orphans() {
     let db = setup_db().await;
     let (_record_id, _image_id) = seed_record_with_image(&db).await;
 
-    let orphans = record::do_check_image_consistency(&db).await.unwrap();
+    let orphans = attachment_check::do_check_image_consistency(&db).await.unwrap();
     assert_eq!(orphans.len(), 1, "Should detect the orphan image reference");
     assert_eq!(orphans[0].file_path, "images/test.jpg");
 }
@@ -368,7 +369,7 @@ async fn test_cleanup_orphan_images() {
             .unwrap();
     assert_eq!(before_count.0, 1);
 
-    let orphans = record::do_check_image_consistency(&db).await.unwrap();
+    let orphans = attachment_check::do_check_image_consistency(&db).await.unwrap();
     assert_eq!(orphans.len(), 1);
 
     let mut tx = pool.begin().await.unwrap();

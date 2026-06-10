@@ -34,7 +34,7 @@
         <span>{{ authStore.user?.username }}</span>
         <div class="footer-actions">
           <el-dropdown trigger="hover" @command="handleThemeChange">
-            <el-button text size="small" @click.stop="handleThemeCycle">
+            <el-button text size="small">
               <el-icon :size="16">
                 <Sunny v-if="themeStore.mode === 'light'" />
                 <Moon v-else-if="themeStore.mode === 'dark'" />
@@ -55,7 +55,10 @@
               </el-dropdown-menu>
             </template>
           </el-dropdown>
-          <el-button text size="small" @click="handleLogout">退出</el-button>
+          <el-button text size="small" @click="handleLogout">
+            <el-icon :size="16"><SwitchButton /></el-icon>
+            <span>退出</span>
+          </el-button>
         </div>
       </div>
     </aside>
@@ -119,6 +122,7 @@ import {
   Sunny,
   Moon,
   Monitor,
+  SwitchButton,
 } from "@element-plus/icons-vue";
 
 interface BreadcrumbItem {
@@ -161,10 +165,6 @@ const pageTitle = computed(() => breadcrumbs.value[breadcrumbs.value.length - 1]
 
 function handleThemeChange(mode: string) {
   themeStore.setMode(mode as "light" | "dark" | "auto");
-}
-
-function handleThemeCycle() {
-  themeStore.cycleMode();
 }
 
 async function handleLogout() {
@@ -219,6 +219,7 @@ async function handleLogout() {
       border-radius: 10px;
       object-fit: cover;
       box-shadow: 0 10px 26px rgba(37, 99, 235, 0.34);
+      flex-shrink: 0;
     }
 
     h1 {
@@ -226,6 +227,7 @@ async function handleLogout() {
       font-size: 19px;
       font-weight: 750;
       letter-spacing: 0;
+      white-space: nowrap;
     }
   }
 
@@ -241,17 +243,18 @@ async function handleLogout() {
       border-radius: 10px;
       color: var(--text-sidebar);
       font-size: 15px;
+      background: transparent !important;
       transition: background-color 180ms ease, color 180ms ease, transform 180ms ease;
 
       &:hover {
         color: var(--sidebar-hover-text);
-        background-color: var(--sidebar-hover-bg);
+        background-color: var(--sidebar-hover-bg) !important;
         transform: translateX(2px);
       }
 
       &.is-active {
         color: var(--sidebar-active-text);
-        background: var(--sidebar-active-bg);
+        background: var(--sidebar-active-bg) !important;
         box-shadow: var(--sidebar-active-shadow);
       }
 

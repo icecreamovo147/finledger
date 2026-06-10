@@ -68,16 +68,41 @@ pub async fn list_books(
     let keyword = keyword.filter(|k| !k.trim().is_empty());
     let search_pattern = keyword.as_ref().map(|k| format!("%{}%", escape_like(k.trim())));
 
-    let total: (i64,) = if let Some(ref pat) = search_pattern {
-        sqlx::query_as(
-            "SELECT COUNT(*) FROM account_books WHERE name LIKE ?1 ESCAPE '\\' OR remark LIKE ?1 ESCAPE '\\'",
-        )
-        .bind(pat)
-        .fetch_one(&pool)
-        .await
-        .map_err(|e| e.to_string())?
+    // Dynamic SQL: build WHERE + bind params once, avoiding duplicated queries
+    let has_keyword = search_pattern.is_some();
+
+    let where_clause = if has_keyword {
+        " WHERE b.name LIKE ?1 ESCAPE '\\' OR b.remark LIKE ?1 ESCAPE '\\'"
     } else {
-        sqlx::query_as("SELECT COUNT(*) FROM account_books")
+        ""
+    };
+
+    let count_sql = format!("SELECT COUNT(*) FROM account_books b{}", where_clause);
+    let data_sql = format!(
+        r#"
+        SELECT
+            b.id, b.name, b.remark, b.created_at, b.updated_at,
+            COALESCE(SUM(CASE WHEN r.settlement_status = 'unsettled' THEN r.total_amount ELSE 0 END), 0) AS total_unsettled,
+            COUNT(r.id) AS record_count
+        FROM account_books b
+        LEFT JOIN income_records r ON r.book_id = b.id
+        {where}
+        GROUP BY b.id
+        ORDER BY b.created_at ASC
+        LIMIT ?{lim_idx} OFFSET ?{off_idx}"#,
+        where = where_clause,
+        lim_idx = if has_keyword { 2 } else { 1 },
+        off_idx = if has_keyword { 3 } else { 2 },
+    );
+
+    let total: (i64,) = if let Some(ref pat) = search_pattern {
+        sqlx::query_as(&count_sql)
+            .bind(pat)
+            .fetch_one(&pool)
+            .await
+            .map_err(|e| e.to_string())?
+    } else {
+        sqlx::query_as(&count_sql)
             .fetch_one(&pool)
             .await
             .map_err(|e| e.to_string())?
@@ -85,43 +110,20 @@ pub async fn list_books(
 
     let books: Vec<(i64, String, String, String, String, Option<i64>, Option<i64>)> =
         if let Some(ref pat) = search_pattern {
-            sqlx::query_as(
-                "SELECT \
-                    b.id, b.name, b.remark, b.created_at, b.updated_at, \
-                    COALESCE(SUM(CASE WHEN r.settlement_status = 'unsettled' THEN r.total_amount ELSE 0 END), 0) as total_unsettled, \
-                    COUNT(r.id) as record_count \
-                FROM account_books b \
-                LEFT JOIN income_records r ON r.book_id = b.id \
-                WHERE b.name LIKE ?1 ESCAPE '\\' OR b.remark LIKE ?1 ESCAPE '\\' \
-                GROUP BY b.id \
-                ORDER BY b.created_at ASC \
-                LIMIT ?2 OFFSET ?3",
-            )
-            .bind(pat)
-            .bind(page_size)
-            .bind(offset)
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| e.to_string())?
+            sqlx::query_as(&data_sql)
+                .bind(pat)
+                .bind(page_size)
+                .bind(offset)
+                .fetch_all(&pool)
+                .await
+                .map_err(|e| e.to_string())?
         } else {
-            sqlx::query_as(
-                r#"
-                SELECT
-                    b.id, b.name, b.remark, b.created_at, b.updated_at,
-                    COALESCE(SUM(CASE WHEN r.settlement_status = 'unsettled' THEN r.total_amount ELSE 0 END), 0) as total_unsettled,
-                    COUNT(r.id) as record_count
-                FROM account_books b
-                LEFT JOIN income_records r ON r.book_id = b.id
-                GROUP BY b.id
-                ORDER BY b.created_at ASC
-                LIMIT ?1 OFFSET ?2
-                "#,
-            )
-            .bind(page_size)
-            .bind(offset)
-            .fetch_all(&pool)
-            .await
-            .map_err(|e| e.to_string())?
+            sqlx::query_as(&data_sql)
+                .bind(page_size)
+                .bind(offset)
+                .fetch_all(&pool)
+                .await
+                .map_err(|e| e.to_string())?
         };
 
     Ok(PaginatedBooks {

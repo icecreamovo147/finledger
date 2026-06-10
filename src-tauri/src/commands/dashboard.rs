@@ -14,30 +14,24 @@ pub async fn get_dashboard_stats(
     let now = chrono::Local::now();
     let month_start = now.format("%Y-%m-01").to_string();
 
-    let current_month: (Option<i64>,) =
-        sqlx::query_as("SELECT SUM(total_amount) FROM income_records WHERE date >= ?1")
-            .bind(&month_start)
-            .fetch_one(&pool)
-            .await
-            .map_err(|e| e.to_string())?;
-
-    let total_unsettled: (Option<i64>,) = sqlx::query_as(
-        "SELECT SUM(total_amount) FROM income_records WHERE settlement_status = 'unsettled'",
+    // --- Merge 4 summary queries into a single CTE scan ---
+    let summary: (Option<i64>, Option<i64>, i64, i64) = sqlx::query_as(
+        r#"
+        WITH stats AS (
+            SELECT
+                SUM(CASE WHEN date >= ?1 THEN total_amount ELSE 0 END) AS current_month,
+                SUM(CASE WHEN settlement_status = 'unsettled' THEN total_amount ELSE 0 END) AS total_unsettled,
+                COUNT(*) AS total_records,
+                SUM(CASE WHEN settlement_status = 'unsettled' THEN 1 ELSE 0 END) AS pending
+            FROM income_records
+        )
+        SELECT current_month, total_unsettled, total_records, pending FROM stats
+        "#,
     )
+    .bind(&month_start)
     .fetch_one(&pool)
     .await
     .map_err(|e| e.to_string())?;
-
-    let total_records: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM income_records")
-        .fetch_one(&pool)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let pending: (i64,) =
-        sqlx::query_as("SELECT COUNT(*) FROM income_records WHERE settlement_status = 'unsettled'")
-            .fetch_one(&pool)
-            .await
-            .map_err(|e| e.to_string())?;
 
     let ranking: Vec<(i64, String, Option<i64>)> = sqlx::query_as(
         r#"
@@ -53,31 +47,18 @@ pub async fn get_dashboard_stats(
     .await
     .map_err(|e| e.to_string())?;
 
-    // Build recent N month keys and query trends
+    // Build recent N month keys and query trends (merged income + settlement into one scan)
     let months = range_months.unwrap_or(12).clamp(1, 60);
     let month_keys = build_recent_month_keys(months, &now);
     let trend_start = format!("{}-01", month_keys.first().unwrap());
 
-    let income_rows: Vec<(String, Option<i64>)> = sqlx::query_as(
-        r#"
-        SELECT strftime('%Y-%m', date) as month, SUM(total_amount)
-        FROM income_records
-        WHERE date >= ?1
-        GROUP BY strftime('%Y-%m', date)
-        ORDER BY month
-        "#,
-    )
-    .bind(&trend_start)
-    .fetch_all(&pool)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    let settlement_rows: Vec<(String, Option<i64>, Option<i64>)> = sqlx::query_as(
+    let trend_rows: Vec<(String, Option<i64>, Option<i64>, Option<i64>)> = sqlx::query_as(
         r#"
         SELECT
-            strftime('%Y-%m', date) as month,
-            SUM(CASE WHEN settlement_status = 'settled' THEN total_amount ELSE 0 END) as settled_amount,
-            SUM(CASE WHEN settlement_status = 'unsettled' THEN total_amount ELSE 0 END) as unsettled_amount
+            strftime('%Y-%m', date) AS month,
+            SUM(total_amount) AS total_income,
+            SUM(CASE WHEN settlement_status = 'settled' THEN total_amount ELSE 0 END) AS settled_amount,
+            SUM(CASE WHEN settlement_status = 'unsettled' THEN total_amount ELSE 0 END) AS unsettled_amount
         FROM income_records
         WHERE date >= ?1
         GROUP BY strftime('%Y-%m', date)
@@ -89,28 +70,25 @@ pub async fn get_dashboard_stats(
     .await
     .map_err(|e| e.to_string())?;
 
-    let income_map: std::collections::HashMap<String, i64> = income_rows
+    let trend_map: std::collections::HashMap<String, (i64, i64, i64)> = trend_rows
         .into_iter()
-        .map(|(month, amount)| (month, amount.unwrap_or(0)))
-        .collect();
-
-    let settlement_map: std::collections::HashMap<String, (i64, i64)> = settlement_rows
-        .into_iter()
-        .map(|(month, settled, unsettled)| (month, (settled.unwrap_or(0), unsettled.unwrap_or(0))))
+        .map(|(month, income, settled, unsettled)| {
+            (month, (income.unwrap_or(0), settled.unwrap_or(0), unsettled.unwrap_or(0)))
+        })
         .collect();
 
     let income_trend = month_keys
         .iter()
         .map(|month| MonthlyIncome {
             month: month.clone(),
-            total_amount: income_map.get(month).copied().unwrap_or(0),
+            total_amount: trend_map.get(month).map(|(inc, _, _)| *inc).unwrap_or(0),
         })
         .collect();
 
     let settlement_trend = month_keys
         .iter()
         .map(|month| {
-            let (settled, unsettled) = settlement_map.get(month).copied().unwrap_or((0, 0));
+            let (_, settled, unsettled) = trend_map.get(month).copied().unwrap_or((0, 0, 0));
             MonthlySettlement {
                 month: month.clone(),
                 settled_amount: settled,
@@ -120,10 +98,10 @@ pub async fn get_dashboard_stats(
         .collect();
 
     Ok(DashboardStats {
-        current_month_income: current_month.0.unwrap_or(0),
-        total_unsettled: total_unsettled.0.unwrap_or(0),
-        total_records: total_records.0,
-        pending_settlement: pending.0,
+        current_month_income: summary.0.unwrap_or(0),
+        total_unsettled: summary.1.unwrap_or(0),
+        total_records: summary.2,
+        pending_settlement: summary.3,
         book_ranking: ranking
             .into_iter()
             .map(|(book_id, book_name, amount)| BookRanking {

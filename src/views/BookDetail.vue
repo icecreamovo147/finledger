@@ -637,10 +637,12 @@ function previewNewImagesByIndex(idx: number) {
     border-radius: 14px;
     background: var(--card-bg);
     box-shadow: var(--card-shadow);
+    overflow: hidden;
 
     .el-table {
       flex: 1;
       min-height: 0;
+      border-radius: 0;
     }
   }
 

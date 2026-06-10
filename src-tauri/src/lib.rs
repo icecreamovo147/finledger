@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod db;
+pub mod error;
 pub mod logger;
 pub mod models;
 pub mod utils;
@@ -117,7 +118,7 @@ pub fn run() {
             });
 
             // Clean up stale staging sessions (older than 24h)
-            commands::record::cleanup_stale_staging_sessions(&app_dir);
+            commands::image_staging::cleanup_stale_staging_sessions(&app_dir);
 
             // Clean up orphan temp files from previous failed uploads
             let images_dir = app_dir.join("images");
@@ -182,7 +183,7 @@ pub fn run() {
             let app_handle = app.handle().clone();
             // 启动时异步清理孤儿图片记录
             tauri::async_runtime::spawn(async move {
-                match commands::record::do_check_image_consistency(&db_for_cleanup).await {
+                match commands::attachment_check::do_check_image_consistency(&db_for_cleanup).await {
                     Ok(orphans) if !orphans.is_empty() => {
                         tracing::info!(target: "finledger", "启动时检测到 {} 个孤儿图片记录，开始清理", orphans.len());
                         let pool = match db_for_cleanup.get_pool().await {
@@ -221,6 +222,10 @@ pub fn run() {
                 tracing::info!(target: "finledger", "备份调度器已启动");
             });
 
+            #[cfg(target_os = "macos")]
+            let icon = Image::from_bytes(include_bytes!("../icons/trayTemplate.png"))
+                .expect("failed to load macOS tray icon");
+            #[cfg(not(target_os = "macos"))]
             let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))
                 .expect("failed to load tray icon");
             let open_item =
@@ -237,6 +242,7 @@ pub fn run() {
                 .menu(&tray_menu)
                 .show_menu_on_left_click(cfg!(target_os = "macos"))
                 .icon(icon)
+                .icon_as_template(cfg!(target_os = "macos"))
                 .tooltip("FinLedger")
                 .on_menu_event(handle_tray_menu_event)
                 .on_tray_icon_event(|_tray_icon, _event| {
@@ -322,14 +328,14 @@ pub fn run() {
             commands::record::settle_record,
             commands::record::unsettle_record,
             commands::record::read_image_base64,
-            commands::record::stage_image_from_path,
-            commands::record::stage_image_bytes,
-            commands::record::delete_staged_image,
-            commands::record::cancel_image_staging_session,
-            commands::record::create_record_with_staged_images,
-            commands::record::update_record_with_staged_images,
-            commands::record::check_attachment_consistency,
-            commands::record::cleanup_orphan_images,
+            commands::image_staging::stage_image_from_path,
+            commands::image_staging::stage_image_bytes,
+            commands::image_staging::delete_staged_image,
+            commands::image_staging::cancel_image_staging_session,
+            commands::image_staging::create_record_with_staged_images,
+            commands::image_staging::update_record_with_staged_images,
+            commands::attachment_check::check_attachment_consistency,
+            commands::attachment_check::cleanup_orphan_images,
             commands::export::export_excel,
             commands::export::export_all_unsettled,
             commands::dashboard::get_dashboard_stats,

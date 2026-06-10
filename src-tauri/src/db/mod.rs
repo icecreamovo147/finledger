@@ -233,7 +233,6 @@ impl DbState {
                     specification     TEXT    DEFAULT '',
                     quantity          INTEGER,
                     unit              TEXT    DEFAULT '',
-                    unit              TEXT    DEFAULT '',
                     unit_price        INTEGER,
                     total_amount      INTEGER NOT NULL,
                     settlement_status TEXT    NOT NULL DEFAULT 'unsettled' CHECK (settlement_status IN ('unsettled', 'settled')),
@@ -307,7 +306,11 @@ impl DbState {
                 Ok(_) => {}
                 Err(e) => {
                     let msg = e.to_string();
-                    if !msg.contains("duplicate column name") {
+                    // 仅对非 CREATE TABLE 语句容错 "duplicate column name"
+                    // （如 ALTER TABLE ADD COLUMN 的幂等场景）。
+                    // CREATE TABLE IF NOT EXISTS 本身已是幂等的，若报此错说明 SQL 有误。
+                    let is_create_table = sql.trim_start().to_uppercase().starts_with("CREATE TABLE");
+                    if is_create_table || !msg.contains("duplicate column name") {
                         return Err(e);
                     }
                     // duplicate column — idempotent, continue
