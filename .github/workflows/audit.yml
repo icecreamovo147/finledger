@@ -1,0 +1,43 @@
+name: Security Audit
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # 每周一 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  rust-audit:
+    name: Rust dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run audit
+        run: cargo audit --manifest-path src-tauri/Cargo.toml
+        continue-on-error: true
+
+  npm-audit:
+    name: npm dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run audit
+        run: npm audit --audit-level=high
+        continue-on-error: true
